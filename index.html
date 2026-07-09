@@ -201,8 +201,11 @@ th.sortable.active .arrow{ opacity:1; color: var(--brass); }
 }
 .filter-banner button{ all:unset; cursor:pointer; color:var(--brass); font-weight:600; }
 
-.chart-bars{ display:flex; align-items:stretch; gap:10px; height:160px; padding-top:10px; }
-.chart-bar{ flex:1; display:flex; flex-direction:column; align-items:center; height:100%; }
+.chart-bars-wrap{ overflow-x:auto; overflow-y:hidden; padding-bottom:4px; }
+.chart-bars-wrap::-webkit-scrollbar{ height:6px; }
+.chart-bars-wrap::-webkit-scrollbar-thumb{ background: var(--line-strong); border-radius:3px; }
+.chart-bars{ display:flex; align-items:stretch; gap:14px; height:160px; padding-top:10px; min-width:min-content; }
+.chart-bar{ flex:0 0 56px; display:flex; flex-direction:column; align-items:center; height:100%; }
 .chart-bar .bar-track{ flex:1; width:100%; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:6px; }
 .chart-bar .bar{ width:100%; background: var(--moss); border-radius: 2px 2px 0 0; min-height:3px; transition: opacity .15s; }
 .chart-bar .bar.bar-max{ background: var(--brass); }
@@ -757,12 +760,12 @@ function renderPainel(){
     </div>
   ` : '';
 
-  // Gráfico dos últimos 6 meses com recebimentos
-  const gruposRecebido = groupByMonth(state.recebimentos, 'data').slice(0,6).reverse();
+  // Gráfico com todos os meses que tiveram recebimentos
+  const gruposRecebido = groupByMonth(state.recebimentos, 'data').reverse();
   const totais = gruposRecebido.map(g=>g.items.reduce((s,r)=>s+Number(r.valor),0));
   const maxValor = Math.max(1, ...totais);
   const chartHtml = gruposRecebido.length ? `
-    <div class="chart-bars">
+    <div class="chart-bars-wrap"><div class="chart-bars">
       ${gruposRecebido.map((g,i)=>{
         const total = totais[i];
         const ratio = total/maxValor;
@@ -781,7 +784,7 @@ function renderPainel(){
           </div>
         `;
       }).join('')}
-    </div>
+    </div></div>
   ` : `<div class="empty-state" style="padding:30px;">Sem recebimentos registrados ainda.</div>`;
 
   return `
