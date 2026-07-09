@@ -1239,8 +1239,10 @@ function renderRelatorios(){
   }).sort((a,b)=>a.dataEmissao.localeCompare(b.dataEmissao));
   const totalFaturadoMes = trabalhosMes.reduce((s,t)=>s+Number(t.valor),0);
 
-  const emAberto = state.trabalhos.filter(t=>trabalhoSaldo(t)>0.004)
-    .sort((a,b)=>(a.vencimento||'9999').localeCompare(b.vencimento||'9999'));
+  const emAberto = state.trabalhos.filter(t=>{
+    const d = new Date(t.dataEmissao+'T00:00:00');
+    return d.getMonth()===mes && d.getFullYear()===ano && trabalhoSaldo(t)>0.004;
+  }).sort((a,b)=>(a.vencimento||'9999').localeCompare(b.vencimento||'9999'));
   const totalEmAberto = emAberto.reduce((s,t)=>s+trabalhoSaldo(t),0);
 
   const anoAtual = new Date().getFullYear();
@@ -1266,7 +1268,7 @@ function renderRelatorios(){
       <div class="ticket-nums">
         <div class="tn moss"><div class="label">Recebido no mês</div><div class="value num">${formatBRL(totalRecebidoMes)}</div></div>
         <div class="tn"><div class="label">Faturado no mês</div><div class="value num">${formatBRL(totalFaturadoMes)}</div></div>
-        <div class="tn rust"><div class="label">Em aberto (total)</div><div class="value num">${formatBRL(totalEmAberto)}</div></div>
+        <div class="tn rust"><div class="label">Em aberto no mês</div><div class="value num">${formatBRL(totalEmAberto)}</div></div>
       </div>
     </div>
 
@@ -1295,14 +1297,14 @@ function renderRelatorios(){
       </table>
     </div>
 
-    <div class="section-title"><span>Situação atual — todos os valores em aberto</span><span class="rule"></span><span class="badge-count">${emAberto.length}</span></div>
+    <div class="section-title"><span>Valores em aberto — trabalhos de ${MESES[mes]}</span><span class="rule"></span><span class="badge-count">${emAberto.length}</span></div>
     <div class="card" style="padding:0;">
       <table>
         <thead><tr><th>Cliente</th><th>Trabalho</th><th>Vencimento</th><th>Saldo em aberto</th></tr></thead>
         <tbody>
         ${emAberto.length ? emAberto.map(t=>`
           <tr><td>${escapeHtml(clienteNome(t.clienteId))}</td><td>${escapeHtml(t.descricao)}</td><td class="mono">${formatDate(t.vencimento)}</td><td class="num">${formatBRL(trabalhoSaldo(t))}</td></tr>
-        `).join('') : `<tr class="empty-row"><td colspan="4">Nenhum valor em aberto no momento. Tudo em dia.</td></tr>`}
+        `).join('') : `<tr class="empty-row"><td colspan="4">Nenhum trabalho de ${MESES[mes]} está em aberto.</td></tr>`}
         </tbody>
       </table>
     </div>
