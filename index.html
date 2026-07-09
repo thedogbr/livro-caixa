@@ -812,10 +812,7 @@ function renderPainel(){
     <div class="section-title"><span>Recebido por mês</span><span class="rule"></span></div>
     <div class="card" style="margin-bottom:28px;">${chartHtml}</div>
 
-    <div class="section-title">
-      <span>Próximos vencimentos</span><span class="rule"></span>
-      <button class="btn btn-ghost" id="baixar-backup" style="padding:6px 12px; font-size:11.5px;">Baixar backup</button>
-    </div>
+    <div class="section-title"><span>Próximos vencimentos</span><span class="rule"></span></div>
     <div class="card" style="padding:0;">
       <table>
         <thead><tr><th>Cliente</th><th>Trabalho</th><th>Vencimento</th><th>Saldo em aberto</th><th>Status</th><th></th></tr></thead>
@@ -1308,6 +1305,10 @@ function renderRelatorios(){
         `).join('') : `<tr class="empty-row"><td colspan="4">Nenhum valor em aberto no momento. Tudo em dia.</td></tr>`}
         </tbody>
       </table>
+    </div>
+
+    <div style="display:flex; justify-content:flex-end; margin-top:24px;">
+      <button class="btn btn-ghost" id="baixar-backup">Baixar backup completo (JSON)</button>
     </div>
   `;
 }
