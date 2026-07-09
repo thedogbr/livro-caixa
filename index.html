@@ -1416,6 +1416,7 @@ function renderRelatorios(){
 
 /* ============ PDF ============ */
 function gerarReciboPDF(trabalhoId){
+  if(!window.jspdf){ showAlert('Não foi possível carregar o gerador de PDF (verifique sua conexão com a internet) e tente novamente.'); return; }
   const t = state.trabalhos.find(x=>x.id===trabalhoId);
   if(!t) return;
   const cliente = state.clientes.find(c=>c.id===t.clienteId);
@@ -1458,6 +1459,7 @@ function gerarReciboPDF(trabalhoId){
 }
 
 function gerarExtratoClientePDF(clienteId){
+  if(!window.jspdf){ showAlert('Não foi possível carregar o gerador de PDF (verifique sua conexão com a internet) e tente novamente.'); return; }
   const cliente = state.clientes.find(c=>c.id===clienteId);
   if(!cliente) return;
   const trabalhos = state.trabalhos.filter(t=>t.clienteId===clienteId).sort((a,b)=>a.dataEmissao.localeCompare(b.dataEmissao));
@@ -1592,7 +1594,7 @@ function attachViewHandlers(){
     b.addEventListener('click', ()=>openClienteModal(state.clientes.find(c=>c.id===b.dataset.editCliente)));
   });
   document.querySelectorAll('[data-ver-trabalhos]').forEach(b=>{
-    b.addEventListener('click', ()=>{ state.filtroClienteId = b.dataset.verTrabalhos; state.view = 'trabalhos'; render(); });
+    b.addEventListener('click', ()=>{ state.filtroClienteId = b.dataset.verTrabalhos; state.buscaTrabalhos = ''; state.view = 'trabalhos'; render(); });
   });
   document.querySelectorAll('[data-pdf-cliente]').forEach(b=>{
     b.addEventListener('click', ()=>gerarExtratoClientePDF(b.dataset.pdfCliente));
