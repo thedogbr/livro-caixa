@@ -359,16 +359,24 @@ const state = {
   clientes: [],
   trabalhos: [],
   recebimentos: [],
+  contas: [],
   ready: false,
   relatorio: { mes: new Date().getMonth(), ano: new Date().getFullYear() },
   buscaClientes: '',
   buscaTrabalhos: '',
   filtroClienteId: null,
+  filtroContaId: null,
   ordenacao: {
     trabalhos: { campo: 'dataEmissao', dir: 'desc' },
     recebimentos: { campo: 'data', dir: 'desc' }
   }
 };
+
+const CONTAS_PADRAO = [
+  { id: 'pj-bb', nome: 'Conta PJ Empresa (Banco do Brasil)' },
+  { id: 'pj-diana', nome: 'Conta PJ Diana (Nubank)' },
+  { id: 'pf-junior', nome: 'Conta PF Junior (Nubank)' }
+];
 
 const TABS = [
   { id:'painel', label:'Painel', n:'01' },
@@ -500,7 +508,7 @@ async function ensureDataFile(){
   if(json.files && json.files.length){ driveFileId = json.files[0].id; return; }
   const boundary = 'livrocaixa-boundary-' + uid();
   const metadata = { name: DATA_FILE_NAME, parents: [driveFolderId], mimeType: 'application/json' };
-  const inicial = { clientes:[], trabalhos:[], recebimentos:[], seedImportado:false };
+  const inicial = { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), seedImportado:false };
   const body =
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
     `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(inicial)}\r\n` +
@@ -518,7 +526,7 @@ async function driveLoad(){
   const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`);
   const text = await res.text();
   try{ return JSON.parse(text); }
-  catch(e){ return { clientes:[], trabalhos:[], recebimentos:[], seedImportado:false }; }
+  catch(e){ return { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), seedImportado:false }; }
 }
 
 async function driveSave(data){
@@ -535,7 +543,7 @@ async function driveSave(data){
 async function saveAll(){
   const ok = await driveSave({
     clientes: state.clientes, trabalhos: state.trabalhos,
-    recebimentos: state.recebimentos, seedImportado: state.seedImportado
+    recebimentos: state.recebimentos, contas: state.contas, seedImportado: state.seedImportado
   });
   if(!ok){
     await showAlert('Não foi possível salvar no Google Drive agora. Verifique sua conexão com a internet e tente novamente — se o problema continuar, talvez seja preciso reconectar (recarregue a página e clique em Conectar ao Google Drive de novo).');
@@ -553,11 +561,13 @@ async function bootAfterAuth(){
     state.clientes = data.clientes || [];
     state.trabalhos = data.trabalhos || [];
     state.recebimentos = data.recebimentos || [];
+    state.contas = (data.contas && data.contas.length) ? data.contas : CONTAS_PADRAO.slice();
     state.seedImportado = data.seedImportado || false;
     state.ready = true;
     document.getElementById('app-loading').style.display = 'none';
     document.getElementById('app').style.display = 'flex';
     render();
+    if(!data.contas){ saveAll(); } // grava as contas-padrão na primeira vez
   }catch(e){
     console.error(e);
     document.getElementById('app-loading').style.display = 'none';
@@ -627,6 +637,10 @@ function escapeHtml(s){
 function clienteNome(id){
   const c = state.clientes.find(c=>c.id===id);
   return c ? c.nome : '(cliente removido)';
+}
+function contaNome(id){
+  const c = state.contas.find(c=>c.id===id);
+  return c ? c.nome : 'Não informada';
 }
 function trabalhoRecebido(trabalhoId){
   return state.recebimentos.filter(r=>r.trabalhoId===trabalhoId).reduce((s,r)=>s+Number(r.valor),0);
@@ -1088,6 +1102,7 @@ function renderRecebimentos(){
       return t && t.clienteId === state.filtroClienteId;
     });
   }
+  if(state.filtroContaId) lista = lista.filter(r=>r.contaId === state.filtroContaId);
   const grupos = groupByMonth(lista, 'data');
   const trabalhosDisponiveis = state.trabalhos.length > 0;
   const { campo, dir } = state.ordenacao.recebimentos;
@@ -1104,6 +1119,7 @@ function renderRecebimentos(){
         <thead><tr>
           ${th('Data','data',true)}
           ${th('Cliente / Trabalho','cliente',true)}
+          <th>Conta</th>
           <th>Forma</th>
           ${th('Valor recebido','valor',false)}
           <th></th>
@@ -1115,6 +1131,7 @@ function renderRecebimentos(){
           <tr>
             <td class="mono">${formatDate(r.data)}</td>
             <td>${trabalho ? escapeHtml(trabalhoLabel(trabalho)) : '(trabalho removido)'}</td>
+            <td>${escapeHtml(contaNome(r.contaId))}</td>
             <td>${escapeHtml(r.forma)}</td>
             <td class="num">${formatBRL(r.valor)}</td>
             <td>
@@ -1131,11 +1148,18 @@ function renderRecebimentos(){
   }
 
   const clienteFiltrado = state.filtroClienteId ? state.clientes.find(c=>c.id===state.filtroClienteId) : null;
+  const opcoesFiltroConta = state.contas.map(c=>`<option value="${c.id}" ${state.filtroContaId===c.id?'selected':''}>${escapeHtml(c.nome)}</option>`).join('');
 
   return `
     <div class="toolbar">
-      <div></div>
-      <button class="btn btn-primary" id="novo-recebimento" ${trabalhosDisponiveis? '' : 'disabled'}>+ Registrar recebimento</button>
+      <select class="month-select" id="filtro-conta">
+        <option value="">Todas as contas</option>
+        ${opcoesFiltroConta}
+      </select>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-ghost" id="gerenciar-contas">Gerenciar contas</button>
+        <button class="btn btn-primary" id="novo-recebimento" ${trabalhosDisponiveis? '' : 'disabled'}>+ Registrar recebimento</button>
+      </div>
     </div>
     ${clienteFiltrado ? `
       <div class="filter-banner">
@@ -1157,6 +1181,65 @@ function renderRecebimentos(){
   `;
 }
 
+function openContasModal(){
+  let rascunho = state.contas.map(c=>({...c}));
+
+  function desenhar(){
+    openModal(`
+      <h2>Gerenciar contas</h2>
+      <div id="lista-contas">
+        ${rascunho.map((c,i)=>`
+          <div class="field-row" style="grid-template-columns: 1fr auto; align-items:center; margin-bottom:10px;">
+            <input class="conta-nome-input" data-idx="${i}" value="${escapeHtml(c.nome)}">
+            <button class="icon-btn danger" data-remover-conta="${i}" style="margin-left:8px;">Excluir</button>
+          </div>
+        `).join('') || '<div class="field-hint">Nenhuma conta cadastrada ainda.</div>'}
+      </div>
+      <div class="field-row" style="grid-template-columns: 1fr auto; align-items:end; margin-top:10px;">
+        <div class="field" style="margin-bottom:0;"><label>Nova conta</label><input id="nova-conta-nome" placeholder="Ex: Conta PJ Outra Empresa"></div>
+        <button class="btn btn-ghost" id="add-conta" style="margin-left:8px; white-space:nowrap;">+ Adicionar</button>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" id="cancelar">Cancelar</button>
+        <button class="btn btn-primary" id="salvar-contas">Salvar</button>
+      </div>
+    `);
+    document.getElementById('cancelar').onclick = closeModal;
+    document.getElementById('add-conta').onclick = ()=>{
+      const input = document.getElementById('nova-conta-nome');
+      const nome = input.value.trim();
+      if(!nome) return;
+      rascunho.push({ id: uid(), nome });
+      desenhar();
+    };
+    document.querySelectorAll('.conta-nome-input').forEach(inp=>{
+      inp.addEventListener('input', ()=>{ rascunho[Number(inp.dataset.idx)].nome = inp.value; });
+    });
+    document.querySelectorAll('[data-remover-conta]').forEach(b=>{
+      b.addEventListener('click', async ()=>{
+        const idx = Number(b.dataset.removerConta);
+        const conta = rascunho[idx];
+        const emUso = state.recebimentos.some(r=>r.contaId===conta.id);
+        const msg = emUso
+          ? 'Essa conta está em uso em algum recebimento. Excluir mesmo assim? Os recebimentos vinculados ficarão sem conta definida — você pode reatribuir depois editando cada um.'
+          : 'Excluir esta conta?';
+        if(!(await showConfirm(msg))) return;
+        rascunho.splice(idx,1);
+        desenhar();
+      });
+    });
+    document.getElementById('salvar-contas').onclick = async ()=>{
+      if(rascunho.some(c=>!c.nome.trim())){ await showAlert('O nome da conta não pode ficar em branco.'); return; }
+      const backup = state.contas.slice();
+      state.contas = rascunho;
+      const ok = await saveAll();
+      if(!ok){ state.contas = backup; await showAlert('Não foi possível salvar as contas agora. Tente novamente.'); return; }
+      closeModal(); render();
+    };
+  }
+  desenhar();
+}
+
 function openRecebimentoModal(prefillTrabalhoId, existing){
   const isEdit = !!existing;
   const abertos = state.trabalhos.filter(t=>trabalhoSaldo(t) > 0.004);
@@ -1176,8 +1259,16 @@ function openRecebimentoModal(prefillTrabalhoId, existing){
       <div class="field"><label>Valor recebido (R$) *</label><input id="f-valor-receb" type="number" step="0.01" min="0" value="${valorPrefill}"></div>
       <div class="field"><label>Data *</label><input id="f-data-receb" type="date" value="${isEdit ? existing.data : todayISO()}"></div>
     </div>
-    <div class="field"><label>Forma de pagamento</label>
-      <select id="f-forma">${FORMAS_PAGAMENTO.map(f=>`<option value="${f}" ${isEdit && existing.forma===f?'selected':''}>${f}</option>`).join('')}</select>
+    <div class="field-row">
+      <div class="field"><label>Conta *</label>
+        <select id="f-conta">
+          <option value="">Selecione…</option>
+          ${state.contas.map(c=>`<option value="${c.id}" ${isEdit && existing.contaId===c.id?'selected':''}>${escapeHtml(c.nome)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Forma de pagamento</label>
+        <select id="f-forma">${FORMAS_PAGAMENTO.map(f=>`<option value="${f}" ${isEdit && existing.forma===f?'selected':''}>${f}</option>`).join('')}</select>
+      </div>
     </div>
     <div class="dialog-actions">
       <button class="btn btn-ghost" id="cancelar">Cancelar</button>
@@ -1201,8 +1292,9 @@ function openRecebimentoModal(prefillTrabalhoId, existing){
     const trabalhoId = selectTrabalho.value;
     const valor = parseFloat(document.getElementById('f-valor-receb').value);
     const data = document.getElementById('f-data-receb').value;
-    if(!trabalhoId || isNaN(valor) || valor<=0 || !data){
-      await showAlert('Preencha o trabalho, valor e data.'); return;
+    const contaId = document.getElementById('f-conta').value;
+    if(!trabalhoId || isNaN(valor) || valor<=0 || !data || !contaId){
+      await showAlert('Preencha o trabalho, valor, data e a conta de destino.'); return;
     }
     const t = state.trabalhos.find(t=>t.id===trabalhoId);
     const saldoEfetivo = trabalhoSaldo(t) + (isEdit && existing.trabalhoId===trabalhoId ? existing.valor : 0);
@@ -1213,9 +1305,9 @@ function openRecebimentoModal(prefillTrabalhoId, existing){
     const forma = document.getElementById('f-forma').value;
     if(isEdit){
       const idx = state.recebimentos.findIndex(r=>r.id===existing.id);
-      state.recebimentos[idx] = { id: existing.id, trabalhoId, valor, data, forma };
+      state.recebimentos[idx] = { id: existing.id, trabalhoId, valor, data, forma, contaId };
     } else {
-      state.recebimentos.push({ id: uid(), trabalhoId, valor, data, forma });
+      state.recebimentos.push({ id: uid(), trabalhoId, valor, data, forma, contaId });
     }
     const ok = await saveAll();
     if(!ok){
@@ -1275,15 +1367,28 @@ function renderRelatorios(){
       </div>
     </div>
 
+    <div class="section-title"><span>Recebido por conta em ${MESES[mes]}</span><span class="rule"></span></div>
+    <div class="grid grid-4" style="margin-bottom:28px;">
+      ${state.contas.map(c=>{
+        const totalConta = recebimentosMes.filter(r=>r.contaId===c.id).reduce((s,r)=>s+Number(r.valor),0);
+        return `
+          <div class="card stat">
+            <div class="label">${escapeHtml(c.nome)}</div>
+            <div class="value num" style="font-size:20px;">${formatBRL(totalConta)}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+
     <div class="section-title"><span>Recebimentos de ${MESES[mes]}</span><span class="rule"></span><span class="badge-count">${recebimentosMes.length}</span></div>
     <div class="card" style="padding:0; margin-bottom:28px;">
       <table>
-        <thead><tr><th>Data</th><th>Cliente / Trabalho</th><th>Forma</th><th>Valor</th></tr></thead>
+        <thead><tr><th>Data</th><th>Cliente / Trabalho</th><th>Conta</th><th>Forma</th><th>Valor</th></tr></thead>
         <tbody>
         ${recebimentosMes.length ? recebimentosMes.map(r=>{
           const t = state.trabalhos.find(t=>t.id===r.trabalhoId);
-          return `<tr><td class="mono">${formatDate(r.data)}</td><td>${t?escapeHtml(trabalhoLabel(t)):'—'}</td><td>${escapeHtml(r.forma)}</td><td class="num">${formatBRL(r.valor)}</td></tr>`;
-        }).join('') : `<tr class="empty-row"><td colspan="4">Nenhum recebimento neste período.</td></tr>`}
+          return `<tr><td class="mono">${formatDate(r.data)}</td><td>${t?escapeHtml(trabalhoLabel(t)):'—'}</td><td>${escapeHtml(contaNome(r.contaId))}</td><td>${escapeHtml(r.forma)}</td><td class="num">${formatBRL(r.valor)}</td></tr>`;
+        }).join('') : `<tr class="empty-row"><td colspan="5">Nenhum recebimento neste período.</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -1416,10 +1521,10 @@ function exportarCSV(){
     const d = new Date(r.data+'T00:00:00');
     return d.getMonth()===mes && d.getFullYear()===ano;
   });
-  let csv = 'Data;Cliente;Trabalho;Forma;Valor\n';
+  let csv = 'Data;Cliente;Trabalho;Conta;Forma;Valor\n';
   recebimentosMes.forEach(r=>{
     const t = state.trabalhos.find(t=>t.id===r.trabalhoId);
-    csv += `${formatDate(r.data)};${t?clienteNome(t.clienteId):''};${t?t.descricao:''};${r.forma};${Number(r.valor).toFixed(2).replace('.',',')}\n`;
+    csv += `${formatDate(r.data)};${t?clienteNome(t.clienteId):''};${t?t.descricao:''};${contaNome(r.contaId)};${r.forma};${Number(r.valor).toFixed(2).replace('.',',')}\n`;
   });
   const blob = new Blob(["\uFEFF"+csv], { type:'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -1561,6 +1666,10 @@ function attachViewHandlers(){
   // Recebimentos
   const novoRecebimento = document.getElementById('novo-recebimento');
   if(novoRecebimento) novoRecebimento.addEventListener('click', ()=>openRecebimentoModal());
+  const gerenciarContasBtn = document.getElementById('gerenciar-contas');
+  if(gerenciarContasBtn) gerenciarContasBtn.addEventListener('click', openContasModal);
+  const filtroConta = document.getElementById('filtro-conta');
+  if(filtroConta) filtroConta.addEventListener('change', e=>{ state.filtroContaId = e.target.value || null; render(); });
   document.querySelectorAll('[data-edit-recebimento]').forEach(b=>{
     b.addEventListener('click', ()=>{
       const r = state.recebimentos.find(r=>r.id===b.dataset.editRecebimento);
