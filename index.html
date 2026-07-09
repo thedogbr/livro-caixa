@@ -375,70 +375,6 @@ const TABS = [
 
 const FORMAS_PAGAMENTO = ['Pix','Transferência','Boleto','Dinheiro','Cartão','Outro'];
 
-/* Dados de clientes para inserir/atualizar em massa */
-const CLIENT_UPDATES = [
-  {
-    nome: 'ABAPA',
-    razaoSocial: 'Abapa - Associação Baiana dos Produtores de Algodão',
-    documento: '03.932.543/0001-35',
-    ie: 'Isento',
-    telefone: '(77) 3614-9000',
-    endereco: 'Av. Ahylon Macedo, nº 919, Sala 01 – Bairro: Morada Nobre',
-    cidade: 'Barreiras', uf: 'BA', cep: '47.810-035'
-  },
-  {
-    nome: 'Cooperfarms',
-    razaoSocial: 'Cooperfarms – Cooperativa dos Produtores Rurais da Bahia',
-    documento: '10.333.574/0001-35',
-    email: 'financeiro@cooperfarms.com.br',
-    endereco: 'Avenida Luís Eduardo Magalhães, Nº 2391, Jardim das Acácias',
-    cidade: 'Luís Eduardo Magalhães', uf: 'BA', cep: '47.862-090'
-  },
-  {
-    nome: 'CiaSeeds',
-    razaoSocial: 'Ciaseeds Agronegócios LTDA',
-    documento: '15.302.951/0001-92',
-    ie: '100.685.721 – NO',
-    telefone: '(77) 3639-3502 / (77) 9 9919-8349',
-    email: 'escritoriolem@ciaseeds.com.br',
-    endereco: 'Rodovia BR 020 KM 03 – Zona Rural',
-    cidade: 'Correntina', uf: 'BA', cep: '47.650-000',
-    observacoes: 'E-mail fiscal: contabil1@ciaseeds.com.br · E-mail comercial: comercial@ciaseeds.com.br / auxiliarcomercial@ciaseeds.com.br'
-  },
-  {
-    nome: 'Galvani',
-    razaoSocial: 'Fosnor - Fosfatados do Norte-Nordeste S/A',
-    documento: '32.112.142/0003-07',
-    ie: '99018354',
-    email: 'fiscal@galvani.ind.br',
-    telefone: '(77) 3628-9800 / (19) 3516-2700',
-    endereco: 'Av. Luís Eduardo Magalhães, 2071, Jardim das Acácias 1ª Etapa',
-    cidade: 'Luís Eduardo Magalhães', uf: 'BA', cep: '47.850-000'
-  },
-  {
-    nome: 'Uniagro',
-    razaoSocial: 'Uniagro - União Comercial Agrícola LTDA-ME',
-    documento: '07.239.076/0001-13',
-    ie: '66424967',
-    email: 'juliana@uniagro.agr.br',
-    telefone: '(77) 3628-5288',
-    endereco: 'Av. Luís Eduardo Magalhães, 0, Vereda Tropical',
-    cidade: 'Luís Eduardo Magalhães', uf: 'BA', cep: '47.850-000',
-    observacoes: 'Inscrição Municipal: 218705'
-  },
-  {
-    nome: 'Fama Motors (Mitsubishi Barreiras)',
-    razaoSocial: 'Paraíso Motors Comércio de Veículos LTDA.',
-    documento: '08.270.608/0001-48',
-    ie: '69.840.926',
-    email: 'nfe.bar@famamotors.com.br',
-    telefone: '(77) 3612-9150',
-    endereco: 'Av. Barão do Rio Branco, 375, Galpão Lote P/01A, Loteamento JK, Bairro Vila Rica',
-    cidade: 'Barreiras', uf: 'BA',
-    observacoes: 'Inscrição Municipal: 6.338'
-  }
-];
-
 /* Dados históricos importados da planilha "SERVIÇOS 2026" (jan–jun) */
 const SEED_DATA = [
   {mes:1, cliente:'SLC', trabalho:'Confraternização 50% Restante', valor:975.00, recebido:true},
@@ -631,42 +567,6 @@ async function bootAfterAuth(){
     document.getElementById('auth-gate').style.display = 'flex';
     await showAlert('Não foi possível conectar ao seu Google Drive. Verifique se a Client ID está configurada corretamente e tente novamente.');
   }
-}
-
-/* ============ ATUALIZAÇÃO EM MASSA DE CLIENTES ============ */
-async function atualizarClientes(){
-  if(!(await showConfirm(`Isso vai inserir ou atualizar ${CLIENT_UPDATES.length} clientes (ABAPA, Cooperfarms, CiaSeeds, Galvani, Uniagro, Fama Motors) com os dados cadastrais informados. Deseja continuar?`))) return;
-
-  CLIENT_UPDATES.forEach(u=>{
-    const obsParts = [];
-    if(u.razaoSocial && u.razaoSocial.toLowerCase() !== u.nome.toLowerCase()) obsParts.push(`Razão social: ${u.razaoSocial}`);
-    if(u.observacoes) obsParts.push(u.observacoes);
-    const novaObs = obsParts.join(' · ');
-
-    let cliente = state.clientes.find(c => c.nome.toLowerCase() === u.nome.toLowerCase());
-    if(cliente){
-      if(u.documento) cliente.documento = u.documento;
-      if(u.ie) cliente.ie = u.ie;
-      if(u.email) cliente.email = u.email;
-      if(u.telefone) cliente.telefone = u.telefone;
-      if(u.endereco) cliente.endereco = u.endereco;
-      if(u.cidade) cliente.cidade = u.cidade;
-      if(u.uf) cliente.uf = u.uf;
-      if(u.cep) cliente.cep = u.cep;
-      if(novaObs) cliente.observacoes = cliente.observacoes ? cliente.observacoes + ' · ' + novaObs : novaObs;
-    } else {
-      state.clientes.push({
-        id: uid(), nome: u.nome, documento: u.documento||'', ie: u.ie||'', email: u.email||'',
-        telefone: u.telefone||'', endereco: u.endereco||'', cidade: u.cidade||'', uf: u.uf||'', cep: u.cep||'',
-        observacoes: novaObs
-      });
-    }
-  });
-
-  const ok = await saveAll();
-  if(!ok){ await showAlert('Falha ao salvar as atualizações de clientes. Tente novamente em instantes.'); return; }
-  render();
-  await showAlert('Clientes atualizados com sucesso! Confira a aba Clientes.');
 }
 
 /* ============ IMPORTAÇÃO DA PLANILHA ============ */
@@ -945,10 +845,7 @@ function renderClientes(){
   return `
     <div class="toolbar">
       <input class="search" id="busca-clientes" placeholder="Buscar por nome ou CPF/CNPJ…" value="${escapeHtml(state.buscaClientes)}">
-      <div style="display:flex; gap:8px;">
-        <button class="btn btn-ghost" id="atualizar-clientes">Importar/atualizar 6 clientes</button>
-        <button class="btn btn-primary" id="novo-cliente">+ Novo cliente</button>
-      </div>
+      <button class="btn btn-primary" id="novo-cliente">+ Novo cliente</button>
     </div>
     <div class="card" style="padding:0;">
       <table>
@@ -1589,8 +1486,6 @@ function attachViewHandlers(){
   if(buscaC) buscaC.addEventListener('input', e=>{ state.buscaClientes = e.target.value; render(); document.getElementById('busca-clientes').focus(); document.getElementById('busca-clientes').selectionStart = document.getElementById('busca-clientes').value.length; });
   const novoCliente = document.getElementById('novo-cliente');
   if(novoCliente) novoCliente.addEventListener('click', ()=>openClienteModal());
-  const atualizarBtn = document.getElementById('atualizar-clientes');
-  if(atualizarBtn) atualizarBtn.addEventListener('click', atualizarClientes);
   document.querySelectorAll('[data-edit-cliente]').forEach(b=>{
     b.addEventListener('click', ()=>openClienteModal(state.clientes.find(c=>c.id===b.dataset.editCliente)));
   });
