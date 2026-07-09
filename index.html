@@ -5,6 +5,7 @@
 <title>Livro-Caixa</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="https://accounts.google.com/gsi/client" onload="initGis()" async defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
@@ -184,6 +185,26 @@ tbody tr:last-child td{ border-bottom:none; }
 .tag.quitado{ background: var(--moss-soft); color: var(--moss); }
 .tag.parcial{ background: var(--brass-soft); color: var(--brass); }
 .tag.aberto{ background: var(--rust-soft); color: var(--rust); }
+.tag.atrasado{ background: var(--rust-soft); color: var(--rust); }
+.tag.a-vencer{ background: var(--brass-soft); color: var(--brass); }
+
+th.sortable{ cursor:pointer; user-select:none; }
+th.sortable:hover{ color: var(--paper); }
+th.sortable .arrow{ opacity:.5; margin-left:3px; }
+th.sortable.active .arrow{ opacity:1; color: var(--brass); }
+
+.filter-banner{
+  display:flex; align-items:center; justify-content:space-between;
+  background: var(--brass-soft); border:1px solid var(--brass);
+  border-radius: var(--radius); padding: 10px 16px; margin-bottom:16px; font-size:13px;
+}
+.filter-banner button{ all:unset; cursor:pointer; color:var(--brass); font-weight:600; }
+
+.chart-bars{ display:flex; align-items:flex-end; gap:10px; height:140px; padding-top:20px; }
+.chart-bar{ flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; }
+.chart-bar .bar{ width:100%; background: var(--moss); border-radius: 2px 2px 0 0; min-height:2px; }
+.chart-bar .bar-value{ font-size:10px; color:var(--paper-dim); font-family:'IBM Plex Mono', monospace; }
+.chart-bar .bar-label{ font-size:10px; color:var(--paper-dim); text-transform:uppercase; }
 
 .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 .icon-btn{
@@ -335,7 +356,12 @@ const state = {
   ready: false,
   relatorio: { mes: new Date().getMonth(), ano: new Date().getFullYear() },
   buscaClientes: '',
-  buscaTrabalhos: ''
+  buscaTrabalhos: '',
+  filtroClienteId: null,
+  ordenacao: {
+    trabalhos: { campo: 'dataEmissao', dir: 'desc' },
+    recebimentos: { campo: 'data', dir: 'desc' }
+  }
 };
 
 const TABS = [
@@ -718,6 +744,50 @@ function trabalhoStatus(t){
 function trabalhoLabel(t){
   return `${clienteNome(t.clienteId)} — ${t.descricao}`;
 }
+function vencimentoSituacao(t){
+  if(trabalhoSaldo(t) <= 0.004 || !t.vencimento) return null;
+  const hoje = todayISO();
+  if(t.vencimento < hoje) return 'atrasado';
+  const diffDias = (new Date(t.vencimento+'T00:00:00') - new Date(hoje+'T00:00:00')) / 86400000;
+  if(diffDias <= 7) return 'a-vencer';
+  return null;
+}
+function compTrabalhos(campo, dir){
+  return (a,b)=>{
+    let va, vb;
+    switch(campo){
+      case 'cliente': va=clienteNome(a.clienteId).toLowerCase(); vb=clienteNome(b.clienteId).toLowerCase(); return dir==='asc'?va.localeCompare(vb):vb.localeCompare(va);
+      case 'valor': va=Number(a.valor); vb=Number(b.valor); return dir==='asc'?va-vb:vb-va;
+      case 'saldo': va=trabalhoSaldo(a); vb=trabalhoSaldo(b); return dir==='asc'?va-vb:vb-va;
+      case 'vencimento': va=a.vencimento||''; vb=b.vencimento||''; return dir==='asc'?va.localeCompare(vb):vb.localeCompare(va);
+      default: va=a.dataEmissao||''; vb=b.dataEmissao||''; return dir==='asc'?va.localeCompare(vb):vb.localeCompare(va);
+    }
+  };
+}
+function compRecebimentos(campo, dir){
+  return (a,b)=>{
+    let va, vb;
+    if(campo === 'cliente'){
+      const ta = state.trabalhos.find(t=>t.id===a.trabalhoId), tb = state.trabalhos.find(t=>t.id===b.trabalhoId);
+      va = ta ? clienteNome(ta.clienteId).toLowerCase() : ''; vb = tb ? clienteNome(tb.clienteId).toLowerCase() : '';
+      return dir==='asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+    }
+    if(campo === 'valor'){ va=Number(a.valor); vb=Number(b.valor); return dir==='asc'?va-vb:vb-va; }
+    va = a.data||''; vb = b.data||'';
+    return dir==='asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+  };
+}
+function alternarOrdenacao(tabela, campo, tipoAsc){
+  const atual = state.ordenacao[tabela];
+  if(atual.campo === campo){ atual.dir = atual.dir === 'asc' ? 'desc' : 'asc'; }
+  else { atual.campo = campo; atual.dir = tipoAsc ? 'asc' : 'desc'; }
+  render();
+}
+function setaOrdenacao(tabela, campo){
+  const atual = state.ordenacao[tabela];
+  if(atual.campo !== campo) return '';
+  return atual.dir === 'asc' ? '▲' : '▼';
+}
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
 function groupByMonth(lista, dateField){
@@ -792,6 +862,27 @@ function renderPainel(){
     </div>
   ` : '';
 
+  // Gráfico dos últimos 6 meses com recebimentos
+  const gruposRecebido = groupByMonth(state.recebimentos, 'data').slice(0,6).reverse();
+  const maxValor = Math.max(1, ...gruposRecebido.map(g=>g.items.reduce((s,r)=>s+Number(r.valor),0)));
+  const chartHtml = gruposRecebido.length ? `
+    <div class="chart-bars">
+      ${gruposRecebido.map(g=>{
+        const total = g.items.reduce((s,r)=>s+Number(r.valor),0);
+        const alturaPct = Math.max(2, (total/maxValor)*100);
+        const [ano, mes] = g.key.split('-');
+        const labelMes = mes==='00' ? '—' : MESES[Number(mes)-1].slice(0,3);
+        return `
+          <div class="chart-bar">
+            <div class="bar-value">${formatBRL(total).replace('R$','').trim()}</div>
+            <div class="bar" style="height:${alturaPct}%;"></div>
+            <div class="bar-label">${labelMes}/${ano.slice(2)}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  ` : `<div class="empty-state" style="padding:30px;">Sem recebimentos registrados ainda.</div>`;
+
   return `
     ${importBanner}
     <div class="grid grid-4" style="margin-bottom:28px;">
@@ -817,21 +908,29 @@ function renderPainel(){
       </div>
     </div>
 
-    <div class="section-title"><span>Próximos vencimentos</span><span class="rule"></span></div>
+    <div class="section-title"><span>Recebido por mês</span><span class="rule"></span></div>
+    <div class="card" style="margin-bottom:28px;">${chartHtml}</div>
+
+    <div class="section-title">
+      <span>Próximos vencimentos</span><span class="rule"></span>
+      <button class="btn btn-ghost" id="baixar-backup" style="padding:6px 12px; font-size:11.5px;">Baixar backup</button>
+    </div>
     <div class="card" style="padding:0;">
       <table>
         <thead><tr><th>Cliente</th><th>Trabalho</th><th>Vencimento</th><th>Saldo em aberto</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          ${proximos.length ? proximos.map(t=>`
+          ${proximos.length ? proximos.map(t=>{
+            const situacao = vencimentoSituacao(t);
+            return `
             <tr>
               <td>${escapeHtml(clienteNome(t.clienteId))}</td>
               <td>${escapeHtml(t.descricao)}</td>
-              <td class="mono">${formatDate(t.vencimento)}</td>
+              <td class="mono">${formatDate(t.vencimento)} ${situacao ? `<span class="tag ${situacao}">${situacao==='atrasado'?'atrasado':'a vencer'}</span>` : ''}</td>
               <td class="num">${formatBRL(trabalhoSaldo(t))}</td>
               <td><span class="tag ${trabalhoStatus(t)}">${trabalhoStatus(t)}</span></td>
               <td><button class="icon-btn" style="color:var(--moss);" data-quitar="${t.id}">Confirmar recebimento</button></td>
             </tr>
-          `).join('') : `<tr class="empty-row"><td colspan="6">Nenhum vencimento pendente cadastrado.</td></tr>`}
+          `;}).join('') : `<tr class="empty-row"><td colspan="6">Nenhum vencimento pendente cadastrado.</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -862,6 +961,8 @@ function renderClientes(){
             <td>${escapeHtml(c.telefone)||escapeHtml(c.email)||'—'}</td>
             <td>
               <div class="row-actions">
+                <button class="icon-btn" data-ver-trabalhos="${c.id}">Ver trabalhos</button>
+                <button class="icon-btn" data-pdf-cliente="${c.id}">Extrato PDF</button>
                 <button class="icon-btn" data-edit-cliente="${c.id}">Editar</button>
                 <button class="icon-btn danger" data-del-cliente="${c.id}">Excluir</button>
               </div>
@@ -946,43 +1047,69 @@ function openClienteModal(existing){
 /* ============ TRABALHOS ============ */
 function renderTrabalhos(){
   const q = state.buscaTrabalhos.toLowerCase();
-  const lista = state.trabalhos.filter(t => (t.descricao+clienteNome(t.clienteId)).toLowerCase().includes(q));
+  let lista = state.trabalhos.filter(t => (t.descricao+clienteNome(t.clienteId)).toLowerCase().includes(q));
+  if(state.filtroClienteId) lista = lista.filter(t => t.clienteId === state.filtroClienteId);
   const grupos = groupByMonth(lista, 'dataEmissao');
+  const { campo, dir } = state.ordenacao.trabalhos;
+
+  function th(label, campoOrdenar, ascPadrao){
+    const ativa = campo === campoOrdenar;
+    return `<th class="sortable ${ativa?'active':''}" data-sort-trabalhos="${campoOrdenar}" data-sort-asc="${ascPadrao?'1':'0'}">${label}<span class="arrow">${ativa ? (dir==='asc'?'▲':'▼') : ''}</span></th>`;
+  }
 
   function tabelaTrabalhos(items){
-    const ordenados = items.slice().sort((a,b)=>b.dataEmissao.localeCompare(a.dataEmissao));
+    const ordenados = items.slice().sort(compTrabalhos(campo, dir));
     return `
       <table>
-        <thead><tr><th>Cliente</th><th>Descrição</th><th>Valor</th><th>Recebido</th><th>Saldo</th><th>Vencimento</th><th>Status</th><th></th></tr></thead>
+        <thead><tr>
+          ${th('Cliente','cliente',true)}
+          <th>Descrição</th>
+          ${th('Valor','valor',false)}
+          <th>Recebido</th>
+          ${th('Saldo','saldo',false)}
+          ${th('Vencimento','vencimento',true)}
+          <th>Status</th><th></th>
+        </tr></thead>
         <tbody>
-        ${ordenados.map(t=>`
+        ${ordenados.map(t=>{
+          const situacao = vencimentoSituacao(t);
+          return `
           <tr>
             <td>${escapeHtml(clienteNome(t.clienteId))}</td>
             <td>${escapeHtml(t.descricao)}</td>
             <td class="num">${formatBRL(t.valor)}</td>
             <td class="num">${formatBRL(trabalhoRecebido(t.id))}</td>
             <td class="num">${formatBRL(trabalhoSaldo(t))}</td>
-            <td class="mono">${formatDate(t.vencimento)}</td>
+            <td class="mono">${formatDate(t.vencimento)} ${situacao ? `<span class="tag ${situacao}">${situacao==='atrasado'?'atrasado':'a vencer'}</span>` : ''}</td>
             <td><span class="tag ${trabalhoStatus(t)}">${trabalhoStatus(t)}</span></td>
             <td>
               <div class="row-actions">
                 ${trabalhoSaldo(t) > 0.004 ? `<button class="icon-btn" style="color:var(--moss);" data-quitar="${t.id}">Confirmar recebimento</button>` : ''}
+                <button class="icon-btn" data-pdf-trabalho="${t.id}">PDF</button>
                 <button class="icon-btn" data-edit-trabalho="${t.id}">Editar</button>
                 <button class="icon-btn danger" data-del-trabalho="${t.id}">Excluir</button>
               </div>
             </td>
           </tr>
-        `).join('')}
+        `;}).join('')}
         </tbody>
       </table>
     `;
   }
+
+  const clienteFiltrado = state.filtroClienteId ? state.clientes.find(c=>c.id===state.filtroClienteId) : null;
 
   return `
     <div class="toolbar">
       <input class="search" id="busca-trabalhos" placeholder="Buscar por descrição ou cliente…" value="${escapeHtml(state.buscaTrabalhos)}">
       <button class="btn btn-primary" id="novo-trabalho" ${state.clientes.length? '' : 'disabled'}>+ Novo trabalho</button>
     </div>
+    ${clienteFiltrado ? `
+      <div class="filter-banner">
+        <span>Mostrando apenas trabalhos de <strong>${escapeHtml(clienteFiltrado.nome)}</strong></span>
+        <button id="limpar-filtro-cliente">Limpar filtro ✕</button>
+      </div>
+    ` : ''}
     ${state.clientes.length===0 ? `<div class="field-hint warn" style="margin-bottom:14px;">Cadastre um cliente antes de lançar um trabalho.</div>` : ''}
     ${grupos.length ? grupos.map(g=>{
       const totalMes = g.items.reduce((s,t)=>s+Number(t.valor),0);
@@ -1056,15 +1183,33 @@ function openTrabalhoModal(existing){
 
 /* ============ RECEBIMENTOS ============ */
 function renderRecebimentos(){
-  const lista = state.recebimentos.slice();
+  let lista = state.recebimentos.slice();
+  if(state.filtroClienteId){
+    lista = lista.filter(r=>{
+      const t = state.trabalhos.find(t=>t.id===r.trabalhoId);
+      return t && t.clienteId === state.filtroClienteId;
+    });
+  }
   const grupos = groupByMonth(lista, 'data');
   const trabalhosDisponiveis = state.trabalhos.length > 0;
+  const { campo, dir } = state.ordenacao.recebimentos;
+
+  function th(label, campoOrdenar, ascPadrao){
+    const ativa = campo === campoOrdenar;
+    return `<th class="sortable ${ativa?'active':''}" data-sort-recebimentos="${campoOrdenar}" data-sort-asc="${ascPadrao?'1':'0'}">${label}<span class="arrow">${ativa ? (dir==='asc'?'▲':'▼') : ''}</span></th>`;
+  }
 
   function tabelaRecebimentos(items){
-    const ordenados = items.slice().sort((a,b)=>b.data.localeCompare(a.data));
+    const ordenados = items.slice().sort(compRecebimentos(campo, dir));
     return `
       <table>
-        <thead><tr><th>Data</th><th>Cliente / Trabalho</th><th>Forma</th><th>Valor recebido</th><th></th></tr></thead>
+        <thead><tr>
+          ${th('Data','data',true)}
+          ${th('Cliente / Trabalho','cliente',true)}
+          <th>Forma</th>
+          ${th('Valor recebido','valor',false)}
+          <th></th>
+        </tr></thead>
         <tbody>
         ${ordenados.map(r=>{
           const trabalho = state.trabalhos.find(t=>t.id===r.trabalhoId);
@@ -1076,6 +1221,7 @@ function renderRecebimentos(){
             <td class="num">${formatBRL(r.valor)}</td>
             <td>
               <div class="row-actions">
+                <button class="icon-btn" data-edit-recebimento="${r.id}">Editar</button>
                 <button class="icon-btn danger" data-del-recebimento="${r.id}">Excluir</button>
               </div>
             </td>
@@ -1086,11 +1232,19 @@ function renderRecebimentos(){
     `;
   }
 
+  const clienteFiltrado = state.filtroClienteId ? state.clientes.find(c=>c.id===state.filtroClienteId) : null;
+
   return `
     <div class="toolbar">
       <div></div>
       <button class="btn btn-primary" id="novo-recebimento" ${trabalhosDisponiveis? '' : 'disabled'}>+ Registrar recebimento</button>
     </div>
+    ${clienteFiltrado ? `
+      <div class="filter-banner">
+        <span>Mostrando apenas recebimentos de <strong>${escapeHtml(clienteFiltrado.nome)}</strong></span>
+        <button id="limpar-filtro-cliente">Limpar filtro ✕</button>
+      </div>
+    ` : ''}
     ${!trabalhosDisponiveis ? `<div class="field-hint warn" style="margin-bottom:14px;">Cadastre um trabalho antes de registrar um recebimento.</div>` : ''}
     ${grupos.length ? grupos.map(g=>{
       const totalMes = g.items.reduce((s,r)=>s+Number(r.valor),0);
@@ -1105,25 +1259,27 @@ function renderRecebimentos(){
   `;
 }
 
-function openRecebimentoModal(prefillTrabalhoId){
+function openRecebimentoModal(prefillTrabalhoId, existing){
+  const isEdit = !!existing;
   const abertos = state.trabalhos.filter(t=>trabalhoSaldo(t) > 0.004);
   const outros = state.trabalhos.filter(t=>trabalhoSaldo(t) <= 0.004);
+  const selecionadoId = isEdit ? existing.trabalhoId : prefillTrabalhoId;
   const opcoes = [
-    ...abertos.map(t=>`<option value="${t.id}" ${t.id===prefillTrabalhoId?'selected':''}>${escapeHtml(trabalhoLabel(t))} — saldo ${formatBRL(trabalhoSaldo(t))}</option>`),
-    ...outros.map(t=>`<option value="${t.id}" ${t.id===prefillTrabalhoId?'selected':''}>${escapeHtml(trabalhoLabel(t))} — quitado</option>`)
+    ...abertos.map(t=>`<option value="${t.id}" ${t.id===selecionadoId?'selected':''}>${escapeHtml(trabalhoLabel(t))} — saldo ${formatBRL(trabalhoSaldo(t))}</option>`),
+    ...outros.map(t=>`<option value="${t.id}" ${t.id===selecionadoId?'selected':''}>${escapeHtml(trabalhoLabel(t))} — quitado</option>`)
   ].join('');
-  const trabalhoPrefill = prefillTrabalhoId ? state.trabalhos.find(t=>t.id===prefillTrabalhoId) : null;
-  const valorPrefill = trabalhoPrefill ? trabalhoSaldo(trabalhoPrefill).toFixed(2) : '';
+  const trabalhoPrefill = selecionadoId ? state.trabalhos.find(t=>t.id===selecionadoId) : null;
+  const valorPrefill = isEdit ? existing.valor.toFixed(2) : (trabalhoPrefill ? trabalhoSaldo(trabalhoPrefill).toFixed(2) : '');
   openModal(`
-    <h2>${trabalhoPrefill ? 'Confirmar recebimento' : 'Registrar recebimento'}</h2>
+    <h2>${isEdit ? 'Editar recebimento' : (trabalhoPrefill ? 'Confirmar recebimento' : 'Registrar recebimento')}</h2>
     <div class="field"><label>Trabalho *</label><select id="f-trabalho">${opcoes}</select></div>
     <div class="field-hint" id="saldo-hint"></div>
     <div class="field-row">
       <div class="field"><label>Valor recebido (R$) *</label><input id="f-valor-receb" type="number" step="0.01" min="0" value="${valorPrefill}"></div>
-      <div class="field"><label>Data *</label><input id="f-data-receb" type="date" value="${todayISO()}"></div>
+      <div class="field"><label>Data *</label><input id="f-data-receb" type="date" value="${isEdit ? existing.data : todayISO()}"></div>
     </div>
     <div class="field"><label>Forma de pagamento</label>
-      <select id="f-forma">${FORMAS_PAGAMENTO.map(f=>`<option value="${f}">${f}</option>`).join('')}</select>
+      <select id="f-forma">${FORMAS_PAGAMENTO.map(f=>`<option value="${f}" ${isEdit && existing.forma===f?'selected':''}>${f}</option>`).join('')}</select>
     </div>
     <div class="dialog-actions">
       <button class="btn btn-ghost" id="cancelar">Cancelar</button>
@@ -1134,7 +1290,10 @@ function openRecebimentoModal(prefillTrabalhoId){
   function updateHint(){
     const t = state.trabalhos.find(t=>t.id===selectTrabalho.value);
     const hint = document.getElementById('saldo-hint');
-    if(t) hint.textContent = `Saldo em aberto atual: ${formatBRL(trabalhoSaldo(t))}`;
+    if(t){
+      const saldoAtual = trabalhoSaldo(t) + (isEdit && existing.trabalhoId===t.id ? existing.valor : 0);
+      hint.textContent = `Saldo em aberto atual: ${formatBRL(saldoAtual)}`;
+    }
   }
   selectTrabalho.onchange = updateHint;
   updateHint();
@@ -1148,15 +1307,18 @@ function openRecebimentoModal(prefillTrabalhoId){
       await showAlert('Preencha o trabalho, valor e data.'); return;
     }
     const t = state.trabalhos.find(t=>t.id===trabalhoId);
-    const saldo = trabalhoSaldo(t);
-    if(valor > saldo + 0.004){
-      if(!(await showConfirm(`O valor informado (${formatBRL(valor)}) é maior que o saldo em aberto (${formatBRL(saldo)}). Deseja continuar mesmo assim?`))) return;
+    const saldoEfetivo = trabalhoSaldo(t) + (isEdit && existing.trabalhoId===trabalhoId ? existing.valor : 0);
+    if(valor > saldoEfetivo + 0.004){
+      if(!(await showConfirm(`O valor informado (${formatBRL(valor)}) é maior que o saldo em aberto (${formatBRL(saldoEfetivo)}). Deseja continuar mesmo assim?`))) return;
     }
     const backup = state.recebimentos.slice();
-    state.recebimentos.push({
-      id: uid(), trabalhoId, valor, data,
-      forma: document.getElementById('f-forma').value
-    });
+    const forma = document.getElementById('f-forma').value;
+    if(isEdit){
+      const idx = state.recebimentos.findIndex(r=>r.id===existing.id);
+      state.recebimentos[idx] = { id: existing.id, trabalhoId, valor, data, forma };
+    } else {
+      state.recebimentos.push({ id: uid(), trabalhoId, valor, data, forma });
+    }
     const ok = await saveAll();
     if(!ok){
       state.recebimentos = backup;
@@ -1252,6 +1414,96 @@ function renderRelatorios(){
   `;
 }
 
+/* ============ PDF ============ */
+function gerarReciboPDF(trabalhoId){
+  const t = state.trabalhos.find(x=>x.id===trabalhoId);
+  if(!t) return;
+  const cliente = state.clientes.find(c=>c.id===t.clienteId);
+  const recebimentos = state.recebimentos.filter(r=>r.trabalhoId===trabalhoId).sort((a,b)=>a.data.localeCompare(b.data));
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  let y = 20;
+  doc.setFontSize(16); doc.text('Recibo de Prestação de Serviço', 14, y); y+=10;
+  doc.setFontSize(10); doc.text(`Emitido em ${new Date().toLocaleDateString('pt-BR')}`, 14, y); y+=12;
+
+  doc.setFontSize(11); doc.text('Cliente', 14, y); y+=6;
+  doc.setFontSize(10);
+  doc.text(`${cliente ? cliente.nome : '(cliente removido)'}`, 14, y); y+=5;
+  if(cliente && cliente.documento){ doc.text(`CPF/CNPJ: ${cliente.documento}`, 14, y); y+=5; }
+  if(cliente && cliente.endereco){ doc.text(`${cliente.endereco}${cliente.cidade?' - '+cliente.cidade:''}${cliente.uf?'/'+cliente.uf:''}`, 14, y); y+=5; }
+  y+=6;
+
+  doc.setFontSize(11); doc.text('Trabalho', 14, y); y+=6;
+  doc.setFontSize(10);
+  doc.text(`${t.descricao}`, 14, y); y+=5;
+  doc.text(`Emissão: ${formatDate(t.dataEmissao)}${t.vencimento ? '  |  Vencimento: '+formatDate(t.vencimento) : ''}`, 14, y); y+=5;
+  doc.text(`Valor total: ${formatBRL(t.valor)}`, 14, y); y+=10;
+
+  doc.setFontSize(11); doc.text('Recebimentos', 14, y); y+=6;
+  doc.setFontSize(10);
+  if(recebimentos.length){
+    recebimentos.forEach(r=>{
+      doc.text(`${formatDate(r.data)}  —  ${formatBRL(r.valor)}  (${r.forma})`, 14, y); y+=5;
+    });
+  } else {
+    doc.text('Nenhum recebimento registrado.', 14, y); y+=5;
+  }
+  y+=6;
+  doc.setFontSize(12);
+  doc.text(`Recebido: ${formatBRL(trabalhoRecebido(t.id))}`, 14, y); y+=6;
+  doc.text(`Saldo em aberto: ${formatBRL(trabalhoSaldo(t))}`, 14, y); y+=6;
+  doc.text(`Status: ${trabalhoStatus(t)}`, 14, y);
+
+  doc.save(`recibo-${(cliente?cliente.nome:'cliente').replace(/[^a-z0-9]/gi,'-')}-${t.dataEmissao}.pdf`);
+}
+
+function gerarExtratoClientePDF(clienteId){
+  const cliente = state.clientes.find(c=>c.id===clienteId);
+  if(!cliente) return;
+  const trabalhos = state.trabalhos.filter(t=>t.clienteId===clienteId).sort((a,b)=>a.dataEmissao.localeCompare(b.dataEmissao));
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  let y = 20;
+  doc.setFontSize(16); doc.text(`Extrato — ${cliente.nome}`, 14, y); y+=10;
+  doc.setFontSize(10); doc.text(`Emitido em ${new Date().toLocaleDateString('pt-BR')}`, 14, y); y+=10;
+  if(cliente.documento){ doc.text(`CPF/CNPJ: ${cliente.documento}`, 14, y); y+=5; }
+  if(cliente.endereco){ doc.text(`${cliente.endereco}${cliente.cidade?' - '+cliente.cidade:''}${cliente.uf?'/'+cliente.uf:''}`, 14, y); y+=5; }
+  y+=8;
+
+  const totalFaturado = trabalhos.reduce((s,t)=>s+Number(t.valor),0);
+  const totalRecebido = trabalhos.reduce((s,t)=>s+trabalhoRecebido(t.id),0);
+  const totalSaldo = trabalhos.reduce((s,t)=>s+trabalhoSaldo(t),0);
+
+  doc.setFontSize(11);
+  doc.text(`Faturado: ${formatBRL(totalFaturado)}    Recebido: ${formatBRL(totalRecebido)}    Em aberto: ${formatBRL(totalSaldo)}`, 14, y); y+=10;
+
+  doc.setFontSize(10);
+  trabalhos.forEach(t=>{
+    if(y > 270){ doc.addPage(); y = 20; }
+    doc.text(`${formatDate(t.dataEmissao)}  ${t.descricao}`, 14, y); y+=5;
+    doc.text(`  Valor: ${formatBRL(t.valor)}  |  Recebido: ${formatBRL(trabalhoRecebido(t.id))}  |  Saldo: ${formatBRL(trabalhoSaldo(t))}  |  ${trabalhoStatus(t)}`, 14, y); y+=7;
+  });
+  if(trabalhos.length===0){ doc.text('Nenhum trabalho lançado para este cliente.', 14, y); }
+
+  doc.save(`extrato-${cliente.nome.replace(/[^a-z0-9]/gi,'-')}.pdf`);
+}
+
+/* ============ BACKUP ============ */
+function baixarBackup(){
+  const backup = {
+    exportadoEm: new Date().toISOString(),
+    clientes: state.clientes,
+    trabalhos: state.trabalhos,
+    recebimentos: state.recebimentos
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `livro-caixa-backup-${todayISO()}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function exportarCSV(){
   const { mes, ano } = state.relatorio;
   const recebimentosMes = state.recebimentos.filter(r=>{
@@ -1326,6 +1578,8 @@ function showConfirm(msg){
 function attachViewHandlers(){
   const importarBtn = document.getElementById('importar-seed');
   if(importarBtn) importarBtn.addEventListener('click', importarSeed);
+  const backupBtn = document.getElementById('baixar-backup');
+  if(backupBtn) backupBtn.addEventListener('click', baixarBackup);
 
   // Clientes
   const buscaC = document.getElementById('busca-clientes');
@@ -1336,6 +1590,12 @@ function attachViewHandlers(){
   if(atualizarBtn) atualizarBtn.addEventListener('click', atualizarClientes);
   document.querySelectorAll('[data-edit-cliente]').forEach(b=>{
     b.addEventListener('click', ()=>openClienteModal(state.clientes.find(c=>c.id===b.dataset.editCliente)));
+  });
+  document.querySelectorAll('[data-ver-trabalhos]').forEach(b=>{
+    b.addEventListener('click', ()=>{ state.filtroClienteId = b.dataset.verTrabalhos; state.view = 'trabalhos'; render(); });
+  });
+  document.querySelectorAll('[data-pdf-cliente]').forEach(b=>{
+    b.addEventListener('click', ()=>gerarExtratoClientePDF(b.dataset.pdfCliente));
   });
   document.querySelectorAll('[data-del-cliente]').forEach(b=>{
     b.addEventListener('click', async ()=>{
@@ -1367,6 +1627,14 @@ function attachViewHandlers(){
   document.querySelectorAll('[data-quitar]').forEach(b=>{
     b.addEventListener('click', ()=>openRecebimentoModal(b.dataset.quitar));
   });
+  document.querySelectorAll('[data-pdf-trabalho]').forEach(b=>{
+    b.addEventListener('click', ()=>gerarReciboPDF(b.dataset.pdfTrabalho));
+  });
+  document.querySelectorAll('[data-sort-trabalhos]').forEach(b=>{
+    b.addEventListener('click', ()=>alternarOrdenacao('trabalhos', b.dataset.sortTrabalhos, b.dataset.sortAsc==='1'));
+  });
+  const limparFiltro1 = document.getElementById('limpar-filtro-cliente');
+  if(limparFiltro1) limparFiltro1.addEventListener('click', ()=>{ state.filtroClienteId = null; render(); });
   document.querySelectorAll('[data-del-trabalho]').forEach(b=>{
     b.addEventListener('click', async ()=>{
       const temRecebimentos = state.recebimentos.some(r=>r.trabalhoId===b.dataset.delTrabalho);
@@ -1389,6 +1657,15 @@ function attachViewHandlers(){
   // Recebimentos
   const novoRecebimento = document.getElementById('novo-recebimento');
   if(novoRecebimento) novoRecebimento.addEventListener('click', ()=>openRecebimentoModal());
+  document.querySelectorAll('[data-edit-recebimento]').forEach(b=>{
+    b.addEventListener('click', ()=>{
+      const r = state.recebimentos.find(r=>r.id===b.dataset.editRecebimento);
+      openRecebimentoModal(null, r);
+    });
+  });
+  document.querySelectorAll('[data-sort-recebimentos]').forEach(b=>{
+    b.addEventListener('click', ()=>alternarOrdenacao('recebimentos', b.dataset.sortRecebimentos, b.dataset.sortAsc==='1'));
+  });
   document.querySelectorAll('[data-del-recebimento]').forEach(b=>{
     b.addEventListener('click', async ()=>{
       if(!(await showConfirm('Excluir este recebimento?'))) return;
