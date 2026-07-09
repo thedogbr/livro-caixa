@@ -438,13 +438,9 @@ function initGis(){
     scope: DRIVE_SCOPE,
     callback: async (resp)=>{
       if(resp.error){
-        if(localStorage.getItem('lc-authed') === 'true'){
-          // Tentativa silenciosa falhou (sessão expirada/revogada) — mostra tela de login normalmente
-          localStorage.removeItem('lc-authed');
-          document.getElementById('auth-gate').style.display = 'flex';
-          document.getElementById('app-loading').style.display = 'none';
-          return;
-        }
+        localStorage.removeItem('lc-authed');
+        document.getElementById('auth-gate').style.display = 'flex';
+        document.getElementById('app-loading').style.display = 'none';
         await showAlert('Falha ao conectar ao Google Drive: ' + resp.error);
         return;
       }
@@ -455,18 +451,14 @@ function initGis(){
   });
   const btn = document.getElementById('btn-conectar-drive');
   if(btn) btn.disabled = false;
-
-  // Se já autorizou antes nesse navegador, tenta reconectar sem mostrar tela de login
-  if(localStorage.getItem('lc-authed') === 'true'){
-    document.getElementById('app-loading').style.display = 'flex';
-    document.getElementById('auth-gate').style.display = 'none';
-    tokenClient.requestAccessToken({ prompt: '' });
-  }
 }
 
 function signIn(){
   if(!tokenClient){ showAlert('Ainda carregando a conexão com o Google. Aguarde um instante e tente novamente.'); return; }
-  tokenClient.requestAccessToken({ prompt: 'consent' });
+  const jaAutorizouAntes = localStorage.getItem('lc-authed') === 'true';
+  document.getElementById('app-loading').style.display = 'flex';
+  document.getElementById('auth-gate').style.display = 'none';
+  tokenClient.requestAccessToken({ prompt: jaAutorizouAntes ? '' : 'consent' });
 }
 
 async function driveFetch(url, options={}){
