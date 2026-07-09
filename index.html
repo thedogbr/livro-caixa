@@ -1,0 +1,1299 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Livro-Caixa</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://accounts.google.com/gsi/client" onload="initGis()" async defer></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+:root{
+  --ink: #14181C;
+  --ink-2: #1C2329;
+  --ink-3: #242C33;
+  --paper: #EDE7D8;
+  --paper-dim: #9B9384;
+  --brass: #C99A54;
+  --brass-soft: rgba(201,154,84,.14);
+  --moss: #86A879;
+  --moss-soft: rgba(134,168,121,.15);
+  --rust: #C3705A;
+  --rust-soft: rgba(195,112,90,.15);
+  --line: rgba(237,231,216,.10);
+  --line-strong: rgba(237,231,216,.22);
+  --radius: 3px;
+}
+
+*{box-sizing:border-box; margin:0; padding:0;}
+html,body{height:100%;}
+body{
+  background: var(--ink);
+  color: var(--paper);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+::selection{ background: var(--brass-soft); }
+button{ font-family: inherit; cursor:pointer; }
+input, select, textarea{ font-family: inherit; font-size: 14px; }
+
+.serif{ font-family: 'Fraunces', serif; }
+.mono, .num{ font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+
+#app{ display:flex; min-height:100vh; }
+
+/* ---------- Sidebar ---------- */
+.sidebar{
+  width: 220px;
+  flex-shrink:0;
+  background: var(--ink-2);
+  border-right: 1px solid var(--line);
+  display:flex;
+  flex-direction:column;
+  padding: 28px 0;
+}
+.brand{
+  padding: 0 24px 28px 24px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 18px;
+}
+.brand .mark{
+  font-family:'Fraunces', serif;
+  font-size: 22px;
+  font-weight:600;
+  letter-spacing: 0.2px;
+}
+.brand .mark span{ color: var(--brass); }
+.brand .sub{
+  font-size: 11px;
+  color: var(--paper-dim);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+nav.tabs{ display:flex; flex-direction:column; gap:2px; padding: 0 12px; }
+nav.tabs button{
+  all: unset;
+  cursor:pointer;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-size: 13.5px;
+  color: var(--paper-dim);
+  display:flex;
+  align-items:center;
+  gap:10px;
+  transition: background .15s, color .15s;
+}
+nav.tabs button .num-tag{
+  font-family:'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--paper-dim);
+  opacity:.6;
+}
+nav.tabs button:hover{ background: rgba(237,231,216,.05); color: var(--paper); }
+nav.tabs button.active{ background: var(--brass-soft); color: var(--brass); }
+nav.tabs button.active .num-tag{ color: var(--brass); opacity:.8; }
+
+.sidebar-foot{
+  margin-top:auto;
+  padding: 16px 24px 0 24px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--paper-dim);
+}
+
+/* ---------- Main ---------- */
+.main{ flex:1; display:flex; flex-direction:column; min-width:0; }
+.topbar{
+  padding: 26px 40px;
+  border-bottom: 1px solid var(--line);
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+}
+.topbar h1{ font-family:'Fraunces', serif; font-weight:500; font-size:24px; }
+.topbar .date{ font-size:12px; color:var(--paper-dim); font-family:'IBM Plex Mono', monospace; }
+
+#view{ padding: 32px 40px 60px 40px; flex:1; }
+
+/* ---------- Cards / Grid ---------- */
+.grid{ display:grid; gap:16px; }
+.grid-4{ grid-template-columns: repeat(4, 1fr); }
+.grid-2{ grid-template-columns: 1.3fr 1fr; }
+
+.card{
+  background: var(--ink-2);
+  border:1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+.card.stat .label{
+  font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--paper-dim); margin-bottom:10px;
+}
+.card.stat .value{
+  font-family:'Fraunces', serif; font-size: 28px; font-weight:500;
+}
+.card.stat.moss .value{ color: var(--moss); }
+.card.stat.rust .value{ color: var(--rust); }
+.card.stat.brass .value{ color: var(--brass); }
+.card.stat .hint{ font-size:11.5px; color:var(--paper-dim); margin-top:6px; }
+
+.section-title{
+  font-family:'Fraunces', serif;
+  font-size: 15px;
+  color: var(--paper);
+  margin-bottom: 14px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.section-title .rule{ flex:1; height:1px; background:var(--line); }
+
+/* ---------- Table ---------- */
+table{ width:100%; border-collapse:collapse; }
+thead th{
+  text-align:left;
+  font-size: 10.5px;
+  text-transform:uppercase;
+  letter-spacing:0.8px;
+  color: var(--paper-dim);
+  font-weight:500;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-strong);
+}
+tbody td{
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+  vertical-align: middle;
+}
+tbody tr:hover{ background: rgba(237,231,216,.03); }
+tbody tr:last-child td{ border-bottom:none; }
+.empty-row td{ text-align:center; color:var(--paper-dim); padding: 36px 10px; font-style:italic; }
+
+.tag{
+  display:inline-block;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 10.5px;
+  text-transform:uppercase;
+  letter-spacing:.6px;
+}
+.tag.quitado{ background: var(--moss-soft); color: var(--moss); }
+.tag.parcial{ background: var(--brass-soft); color: var(--brass); }
+.tag.aberto{ background: var(--rust-soft); color: var(--rust); }
+
+.row-actions{ display:flex; gap:6px; justify-content:flex-end; }
+.icon-btn{
+  all:unset; cursor:pointer; color:var(--paper-dim); padding:5px 8px; border-radius:var(--radius); font-size:12px;
+}
+.icon-btn:hover{ background: rgba(237,231,216,.08); color:var(--paper); }
+.icon-btn.danger:hover{ color: var(--rust); }
+
+/* ---------- Buttons ---------- */
+.btn{
+  all:unset; cursor:pointer;
+  padding: 9px 16px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  display:inline-flex; align-items:center; gap:6px;
+  border: 1px solid transparent;
+}
+.btn-primary{ background: var(--brass); color: var(--ink); font-weight:600; }
+.btn-primary:hover{ background:#d8ab68; }
+.btn-ghost{ border-color: var(--line-strong); color: var(--paper); }
+.btn-ghost:hover{ background: rgba(237,231,216,.06); }
+.toolbar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; gap:12px; flex-wrap:wrap;}
+.toolbar .search{
+  background: var(--ink-3); border:1px solid var(--line); border-radius: var(--radius);
+  padding: 8px 12px; color: var(--paper); min-width:220px;
+}
+.toolbar .search::placeholder{ color: var(--paper-dim); }
+
+/* ---------- Modal ---------- */
+.overlay{
+  position:fixed; inset:0; background: rgba(10,12,14,.7);
+  display:flex; align-items:center; justify-content:center; z-index:50; padding:20px;
+}
+.dialog{
+  background: var(--ink-2); border:1px solid var(--line-strong); border-radius: var(--radius);
+  width: 100%; max-width: 520px; max-height:88vh; overflow-y:auto;
+  padding: 28px;
+}
+.dialog h2{ font-family:'Fraunces', serif; font-weight:500; font-size:19px; margin-bottom:20px; }
+.field{ margin-bottom:14px; }
+.field label{ display:block; font-size:11.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--paper-dim); margin-bottom:6px; }
+.field input, .field select, .field textarea{
+  width:100%; background: var(--ink-3); border:1px solid var(--line); border-radius: var(--radius);
+  padding: 9px 11px; color: var(--paper);
+}
+.field input:focus, .field select:focus, .field textarea:focus{ outline:1px solid var(--brass); border-color: var(--brass); }
+.field textarea{ resize: vertical; min-height:60px; }
+.field-row{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+.dialog-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top: 22px; padding-top:18px; border-top:1px solid var(--line); }
+.field-hint{ font-size:11.5px; color: var(--paper-dim); margin-top:5px; }
+.field-hint.warn{ color: var(--rust); }
+
+/* ---------- Ticket (relatorio) ---------- */
+.ticket{
+  background: var(--ink-2);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+  padding: 26px 30px;
+  position:relative;
+}
+.ticket .ticket-head{
+  display:flex; justify-content:space-between; align-items:flex-start;
+  border-bottom: 1px dashed var(--line-strong);
+  padding-bottom:18px; margin-bottom:18px;
+}
+.ticket .ticket-head .titulo{ font-family:'Fraunces', serif; font-size:20px; }
+.ticket .ticket-head .periodo{ font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--paper-dim); margin-top:4px; }
+.ticket-nums{ display:flex; gap: 34px; margin-bottom: 6px; }
+.ticket-nums .tn{ }
+.ticket-nums .tn .label{ font-size:10.5px; text-transform:uppercase; letter-spacing:1px; color:var(--paper-dim); margin-bottom:6px; }
+.ticket-nums .tn .value{ font-family:'Fraunces', serif; font-size: 26px; }
+.ticket-nums .tn.moss .value{ color:var(--moss); }
+.ticket-nums .tn.rust .value{ color:var(--rust); }
+
+.empty-state{
+  text-align:center; padding: 70px 20px; color: var(--paper-dim);
+}
+.empty-state .serif{ font-size:18px; color:var(--paper); display:block; margin-bottom:8px; }
+
+select.month-select{
+  background: var(--ink-3); border:1px solid var(--line); border-radius: var(--radius);
+  padding: 8px 12px; color: var(--paper);
+}
+
+.badge-count{
+  background: rgba(237,231,216,.08); color: var(--paper-dim); font-size:10.5px;
+  padding: 1px 7px; border-radius:10px; margin-left:4px;
+}
+
+@media (max-width: 860px){
+  .sidebar{ width:64px; }
+  .brand .sub, .brand .mark span + span, nav.tabs button .label-text{ display:none; }
+  .grid-4{ grid-template-columns: repeat(2,1fr); }
+  .grid-2{ grid-template-columns: 1fr; }
+  #view{ padding: 24px 16px; }
+  .topbar{ padding: 20px; }
+}
+</style>
+</head>
+<body>
+
+<div id="auth-gate" style="min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;">
+  <div class="card" style="max-width:420px; text-align:center; padding:40px 32px;">
+    <div class="serif" style="font-size:26px; margin-bottom:6px;">Livro<span style="color:var(--brass);">-Caixa</span></div>
+    <div style="font-size:12.5px; color:var(--paper-dim); margin-bottom:28px;">Controle de recebimentos</div>
+    <p style="font-size:13.5px; color:var(--paper); line-height:1.6; margin-bottom:26px;">
+      Seus dados ficam salvos numa pasta "Livro-Caixa" no seu próprio Google Drive, sincronizados em qualquer dispositivo.
+    </p>
+    <button class="btn btn-primary" id="btn-conectar-drive" onclick="signIn()" style="width:100%; justify-content:center;" disabled>
+      Conectar ao Google Drive
+    </button>
+    <div id="client-id-warning" style="display:none; margin-top:16px; font-size:11.5px; color:var(--rust); text-align:left; line-height:1.6;">
+      ⚠ A Client ID do Google ainda não foi configurada neste arquivo. Substitua a constante <code>GOOGLE_CLIENT_ID</code> no código pela sua própria credencial (veja as instruções que te enviei).
+    </div>
+  </div>
+</div>
+
+<div id="app-loading" style="min-height:100vh; display:none; align-items:center; justify-content:center;">
+  <div style="color:var(--paper-dim); font-size:13px;">Carregando seus dados do Google Drive…</div>
+</div>
+
+<div id="app" style="display:none;">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="mark">Livro<span>-Caixa</span></div>
+      <div class="sub">Controle de recebimentos</div>
+    </div>
+    <nav class="tabs" id="nav"></nav>
+    <div class="sidebar-foot">Dados sincronizados<br>automaticamente.</div>
+  </aside>
+  <main class="main">
+    <header class="topbar">
+      <h1 id="view-title">Painel</h1>
+      <div class="date" id="today"></div>
+    </header>
+    <div id="view"></div>
+  </main>
+</div>
+<div id="modal-root"></div>
+<div id="confirm-root"></div>
+
+<script>
+/* ============ STATE ============ */
+const state = {
+  view: 'painel',
+  clientes: [],
+  trabalhos: [],
+  recebimentos: [],
+  ready: false,
+  relatorio: { mes: new Date().getMonth(), ano: new Date().getFullYear() },
+  buscaClientes: '',
+  buscaTrabalhos: ''
+};
+
+const TABS = [
+  { id:'painel', label:'Painel', n:'01' },
+  { id:'clientes', label:'Clientes', n:'02' },
+  { id:'trabalhos', label:'Trabalhos', n:'03' },
+  { id:'recebimentos', label:'Recebimentos', n:'04' },
+  { id:'relatorios', label:'Relatórios', n:'05' },
+];
+
+const FORMAS_PAGAMENTO = ['Pix','Transferência','Boleto','Dinheiro','Cartão','Outro'];
+
+/* Dados históricos importados da planilha "SERVIÇOS 2026" (jan–jun) */
+const SEED_DATA = [
+  {mes:1, cliente:'SLC', trabalho:'Confraternização 50% Restante', valor:975.00, recebido:true},
+  {mes:1, cliente:'Casamento Adriene e Gabriel', trabalho:'Casamento (50% Entrega)', valor:1175.00, recebido:true},
+  {mes:2, cliente:'Grupo Nossa', trabalho:'Fotos Colaboradores 50% Fendt', valor:2760.00, recebido:true},
+  {mes:2, cliente:'Grupo Nossa', trabalho:'Fotos Colaboradores 50% Valtra', valor:2760.00, recebido:true},
+  {mes:2, cliente:'Cooperfarms', trabalho:'Serviço fotográfico', valor:6000.00, recebido:true},
+  {mes:2, cliente:'Aniversário Bella - Eliane', trabalho:'Aniversário', valor:1000.00, recebido:true},
+  {mes:2, cliente:'Aniversário filha Marilia', trabalho:'Aniversário 50% entrada', valor:690.00, recebido:true},
+  {mes:3, cliente:'Grupo Nossa', trabalho:'Fendt 360', valor:1950.00, recebido:true},
+  {mes:3, cliente:'Cooperfarms', trabalho:'Impressão Fotos', valor:760.00, recebido:true},
+  {mes:3, cliente:'Cooperfarms', trabalho:'Evento Jeito Cooper de Ser', valor:1200.00, recebido:true},
+  {mes:3, cliente:'Cooperfarms', trabalho:'Cobertura Fotográfica Inauguração Prédio', valor:2800.00, recebido:true},
+  {mes:3, cliente:'Cooperfarms', trabalho:'Cobertura Fotográfica Visita do Governador', valor:1200.00, recebido:true},
+  {mes:3, cliente:'Cooperfarms', trabalho:'Dia de Campo', valor:1800.00, recebido:true},
+  {mes:3, cliente:'Casamento Fernanda e Maxsuel', trabalho:'Casamento 50% Entrada', valor:1675.00, recebido:true},
+  {mes:3, cliente:'Ademar Silvani', trabalho:'Serviço - Março/2026', valor:1460.00, recebido:true, notaCliente:'Cliente não identificado com certeza no momento da importação — revisar.'},
+  {mes:4, cliente:'Cooperfarms', trabalho:'Assembleia Geral', valor:1200.00, recebido:true},
+  {mes:4, cliente:'Cooperfarms', trabalho:'Encontro de Mulheres', valor:1600.00, recebido:true},
+  {mes:4, cliente:'CiaSeeds', trabalho:'Dia de Campo', valor:1600.00, recebido:true},
+  {mes:4, cliente:'Casa das Pedras', trabalho:'Escritório Jessica Mafalda', valor:1200.00, recebido:true},
+  {mes:4, cliente:'Brasil 360', trabalho:'Serviço - Abril/2026', valor:1400.00, recebido:true},
+  {mes:4, cliente:'Revista Stylo', trabalho:'Ensaio Rural Lorrayne pt1', valor:500.00, recebido:true},
+  {mes:4, cliente:'Jessica Amaral Escola de Dança', trabalho:'Espetáculo restante', valor:1000.00, recebido:true},
+  {mes:4, cliente:'Dirceu Carneiro Neto', trabalho:'Serviço - Abril/2026', valor:950.00, recebido:true, notaCliente:'Cliente não identificado com certeza no momento da importação — revisar.'},
+  {mes:4, cliente:'Mouragro Representações', trabalho:'Serviço - Abril/2026', valor:1475.00, recebido:true},
+  {mes:4, cliente:'Casamento Douglas e Marcos', trabalho:'Casamento 50%', valor:1950.00, recebido:true},
+  {mes:4, cliente:'Casamento Lyandra', trabalho:'Casamento', valor:3150.00, recebimentos:[{valor:945.00, mes:4},{valor:2205.00, mes:5}]},
+  {mes:5, cliente:'Revista Orange', trabalho:'Ensaio Bell Baby', valor:400.00, recebido:true},
+  {mes:5, cliente:'Revista Stylo', trabalho:'Ensaio Lorrayne Pt2', valor:500.00, recebido:true},
+  {mes:6, cliente:'Mônica Zanotto', trabalho:'Arena UPL', valor:1800.00, recebido:true},
+  {mes:6, cliente:'Cooperfarms', trabalho:'Bahia Farm Show Pt1', valor:11800.00, recebimentos:[{valor:5900.00, mes:6}]},
+  {mes:6, cliente:'CiaSeeds', trabalho:'Bahia Farm Show', valor:4800.00, recebido:true},
+  {mes:6, cliente:'Oeste Forte', trabalho:'Fotos', valor:300.00, recebido:false, notaCliente:'Não estava na sua lista de mapeamento — confirme o nome real do cliente.'},
+  {mes:6, cliente:'Cooperfarms', trabalho:'Dia de Campo Algodão', valor:1800.00, recebido:false},
+  {mes:6, cliente:'Cooperfarms', trabalho:'Dia de Campo Sorgo', valor:1800.00, recebido:false},
+];
+
+/* ============ CONFIGURAÇÃO DO GOOGLE DRIVE ============ */
+/* Substitua pela sua Client ID do Google Cloud Console (veja instruções enviadas junto com este arquivo) */
+const GOOGLE_CLIENT_ID = 'COLOQUE_SEU_CLIENT_ID_AQUI.apps.googleusercontent.com';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const APP_FOLDER_NAME = 'Livro-Caixa';
+const DATA_FILE_NAME = 'livro-caixa-dados.json';
+
+let accessToken = null;
+let tokenClient = null;
+let driveFolderId = null;
+let driveFileId = null;
+
+function initGis(){
+  if(GOOGLE_CLIENT_ID === 'COLOQUE_SEU_CLIENT_ID_AQUI.apps.googleusercontent.com'){
+    const warn = document.getElementById('client-id-warning');
+    if(warn) warn.style.display = 'block';
+  }
+  if(!window.google || !google.accounts){ setTimeout(initGis, 300); return; }
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: DRIVE_SCOPE,
+    callback: async (resp)=>{
+      if(resp.error){
+        await showAlert('Falha ao conectar ao Google Drive: ' + resp.error);
+        return;
+      }
+      accessToken = resp.access_token;
+      await bootAfterAuth();
+    }
+  });
+  const btn = document.getElementById('btn-conectar-drive');
+  if(btn) btn.disabled = false;
+}
+
+function signIn(){
+  if(!tokenClient){ showAlert('Ainda carregando a conexão com o Google. Aguarde um instante e tente novamente.'); return; }
+  tokenClient.requestAccessToken({ prompt: 'consent' });
+}
+
+async function driveFetch(url, options={}){
+  options.headers = Object.assign({}, options.headers, { Authorization: `Bearer ${accessToken}` });
+  let res = await fetch(url, options);
+  if(res.status === 401){
+    await new Promise((resolve)=>{
+      const prevCallback = tokenClient.callback;
+      tokenClient.callback = (resp)=>{ accessToken = resp.access_token; tokenClient.callback = prevCallback; resolve(); };
+      tokenClient.requestAccessToken({ prompt:'' });
+    });
+    options.headers.Authorization = `Bearer ${accessToken}`;
+    res = await fetch(url, options);
+  }
+  return res;
+}
+
+async function ensureAppFolder(){
+  const q = encodeURIComponent(`name='${APP_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const res = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
+  const json = await res.json();
+  if(json.files && json.files.length){ driveFolderId = json.files[0].id; return; }
+  const createRes = await driveFetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name: APP_FOLDER_NAME, mimeType: 'application/vnd.google-apps.folder' })
+  });
+  const created = await createRes.json();
+  driveFolderId = created.id;
+}
+
+async function ensureDataFile(){
+  const q = encodeURIComponent(`name='${DATA_FILE_NAME}' and '${driveFolderId}' in parents and trashed=false`);
+  const res = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
+  const json = await res.json();
+  if(json.files && json.files.length){ driveFileId = json.files[0].id; return; }
+  const boundary = 'livrocaixa-boundary-' + uid();
+  const metadata = { name: DATA_FILE_NAME, parents: [driveFolderId], mimeType: 'application/json' };
+  const inicial = { clientes:[], trabalhos:[], recebimentos:[], seedImportado:false };
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(inicial)}\r\n` +
+    `--${boundary}--`;
+  const createRes = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+    method: 'POST',
+    headers: {'Content-Type': `multipart/related; boundary=${boundary}`},
+    body
+  });
+  const created = await createRes.json();
+  driveFileId = created.id;
+}
+
+async function driveLoad(){
+  const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`);
+  const text = await res.text();
+  try{ return JSON.parse(text); }
+  catch(e){ return { clientes:[], trabalhos:[], recebimentos:[], seedImportado:false }; }
+}
+
+async function driveSave(data){
+  try{
+    const res = await driveFetch(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    return res.ok;
+  }catch(e){ console.error('Falha ao salvar no Google Drive', e); return false; }
+}
+
+async function saveAll(){
+  const ok = await driveSave({
+    clientes: state.clientes, trabalhos: state.trabalhos,
+    recebimentos: state.recebimentos, seedImportado: state.seedImportado
+  });
+  if(!ok){
+    await showAlert('Não foi possível salvar no Google Drive agora. Verifique sua conexão com a internet e tente novamente — se o problema continuar, talvez seja preciso reconectar (recarregue a página e clique em Conectar ao Google Drive de novo).');
+  }
+  return ok;
+}
+
+async function bootAfterAuth(){
+  document.getElementById('auth-gate').style.display = 'none';
+  document.getElementById('app-loading').style.display = 'flex';
+  try{
+    await ensureAppFolder();
+    await ensureDataFile();
+    const data = await driveLoad();
+    state.clientes = data.clientes || [];
+    state.trabalhos = data.trabalhos || [];
+    state.recebimentos = data.recebimentos || [];
+    state.seedImportado = data.seedImportado || false;
+    state.ready = true;
+    document.getElementById('app-loading').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    render();
+  }catch(e){
+    console.error(e);
+    document.getElementById('app-loading').style.display = 'none';
+    document.getElementById('auth-gate').style.display = 'flex';
+    await showAlert('Não foi possível conectar ao seu Google Drive. Verifique se a Client ID está configurada corretamente e tente novamente.');
+  }
+}
+
+/* ============ IMPORTAÇÃO DA PLANILHA ============ */
+async function importarSeed(){
+  const totalItens = SEED_DATA.length;
+  if(!(await showConfirm(`Isso vai importar ${totalItens} lançamentos históricos (jan–jun/2026) da sua planilha "SERVIÇOS 2026" para o sistema. Deseja continuar?`))) return;
+
+  for(const item of SEED_DATA){
+    let cliente = state.clientes.find(c => c.nome.toLowerCase() === item.cliente.toLowerCase());
+    if(!cliente){
+      cliente = { id:uid(), nome:item.cliente, documento:'', ie:'', email:'', telefone:'', endereco:'', cidade:'', uf:'', cep:'', observacoes:item.notaCliente||'' };
+      state.clientes.push(cliente);
+    } else if(item.notaCliente && !cliente.observacoes){
+      cliente.observacoes = item.notaCliente;
+    }
+
+    const mesStr = String(item.mes).padStart(2,'0');
+    const dataEmissao = `2026-${mesStr}-01`;
+    const trabalho = {
+      id: uid(), clienteId: cliente.id, descricao: item.trabalho, valor: item.valor,
+      dataEmissao, vencimento: '', observacoes: item.notaTrabalho || ''
+    };
+    state.trabalhos.push(trabalho);
+
+    if(item.recebimentos){
+      item.recebimentos.forEach(r=>{
+        const rMesStr = String(r.mes).padStart(2,'0');
+        state.recebimentos.push({ id: uid(), trabalhoId: trabalho.id, valor: r.valor, data: `2026-${rMesStr}-01`, forma: 'Outro' });
+      });
+    } else if(item.recebido){
+      state.recebimentos.push({ id: uid(), trabalhoId: trabalho.id, valor: item.valor, data: dataEmissao, forma: 'Outro' });
+    }
+  }
+
+  const okSalvo = await saveAll();
+  if(!okSalvo){
+    render();
+    await showAlert('Houve uma falha ao salvar durante a importação (erro no armazenamento). Alguns dados podem não ter sido gravados — verifique as abas Clientes, Trabalhos e Recebimentos, e tente importar novamente se algo estiver faltando.');
+    return;
+  }
+  state.seedImportado = true;
+  await saveAll();
+  render();
+  await showAlert('Importação concluída! Confira os clientes marcados para revisão (Ademar Silvani, Dirceu Carneiro Neto e Oeste Forte) e o trabalho da Cooperfarms "Bahia Farm Show Pt1".');
+}
+
+/* ============ HELPERS ============ */
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function formatBRL(n){
+  return (Number(n)||0).toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
+}
+function formatDate(iso){
+  if(!iso) return '—';
+  const [y,m,d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function escapeHtml(s){
+  return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function clienteNome(id){
+  const c = state.clientes.find(c=>c.id===id);
+  return c ? c.nome : '(cliente removido)';
+}
+function trabalhoRecebido(trabalhoId){
+  return state.recebimentos.filter(r=>r.trabalhoId===trabalhoId).reduce((s,r)=>s+Number(r.valor),0);
+}
+function trabalhoSaldo(t){ return Number(t.valor) - trabalhoRecebido(t.id); }
+function trabalhoStatus(t){
+  const saldo = trabalhoSaldo(t);
+  const recebido = trabalhoRecebido(t.id);
+  if(saldo <= 0.004) return 'quitado';
+  if(recebido > 0) return 'parcial';
+  return 'aberto';
+}
+function trabalhoLabel(t){
+  return `${clienteNome(t.clienteId)} — ${t.descricao}`;
+}
+const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+
+function groupByMonth(lista, dateField){
+  const grupos = {};
+  lista.forEach(item=>{
+    const key = (item[dateField]||'0000-00').slice(0,7); // YYYY-MM
+    if(!grupos[key]) grupos[key] = [];
+    grupos[key].push(item);
+  });
+  return Object.keys(grupos).sort((a,b)=>b.localeCompare(a)).map(key=>{
+    const [ano, mes] = key.split('-');
+    const label = mes==='00' ? 'Sem data' : `${MESES[Number(mes)-1]} de ${ano}`;
+    return { key, label, items: grupos[key] };
+  });
+}
+
+/* ============ RENDER SHELL ============ */
+function renderNav(){
+  const nav = document.getElementById('nav');
+  nav.innerHTML = TABS.map(t => `
+    <button data-tab="${t.id}" class="${state.view===t.id?'active':''}">
+      <span class="num-tag">${t.n}</span>
+      <span class="label-text">${t.label}</span>
+    </button>
+  `).join('');
+  nav.querySelectorAll('button').forEach(b=>{
+    b.addEventListener('click', ()=>{ state.view = b.dataset.tab; render(); });
+  });
+}
+
+function render(){
+  renderNav();
+  const titleMap = {painel:'Painel', clientes:'Clientes', trabalhos:'Trabalhos', recebimentos:'Recebimentos', relatorios:'Relatórios mensais'};
+  document.getElementById('view-title').textContent = titleMap[state.view];
+  document.getElementById('today').textContent = new Date().toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
+
+  const view = document.getElementById('view');
+  if(!state.ready){ view.innerHTML = `<div class="empty-state">Carregando dados…</div>`; return; }
+
+  if(state.view === 'painel') view.innerHTML = renderPainel();
+  if(state.view === 'clientes') view.innerHTML = renderClientes();
+  if(state.view === 'trabalhos') view.innerHTML = renderTrabalhos();
+  if(state.view === 'recebimentos') view.innerHTML = renderRecebimentos();
+  if(state.view === 'relatorios') view.innerHTML = renderRelatorios();
+
+  attachViewHandlers();
+}
+
+/* ============ PAINEL ============ */
+function renderPainel(){
+  const abertos = state.trabalhos.filter(t => trabalhoSaldo(t) > 0.004);
+  const totalAberto = abertos.reduce((s,t)=>s+trabalhoSaldo(t),0);
+  const now = new Date();
+  const recebidoMes = state.recebimentos.filter(r=>{
+    const d = new Date(r.data+'T00:00:00');
+    return d.getMonth()===now.getMonth() && d.getFullYear()===now.getFullYear();
+  }).reduce((s,r)=>s+Number(r.valor),0);
+  const faturadoTotal = state.trabalhos.reduce((s,t)=>s+Number(t.valor),0);
+
+  const proximos = abertos
+    .filter(t=>t.vencimento)
+    .sort((a,b)=> a.vencimento.localeCompare(b.vencimento))
+    .slice(0,6);
+
+  const importBanner = !state.seedImportado ? `
+    <div class="card" style="margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; gap:16px; border-color:var(--brass);">
+      <div>
+        <div class="serif" style="font-size:15px; margin-bottom:4px;">Dados da planilha "SERVIÇOS 2026" prontos para importar</div>
+        <div class="field-hint" style="margin:0;">36 lançamentos de janeiro a junho, já organizados por cliente conforme sua revisão.</div>
+      </div>
+      <button class="btn btn-primary" id="importar-seed" style="white-space:nowrap;">Importar agora</button>
+    </div>
+  ` : '';
+
+  return `
+    ${importBanner}
+    <div class="grid grid-4" style="margin-bottom:28px;">
+      <div class="card stat rust">
+        <div class="label">Em aberto</div>
+        <div class="value num">${formatBRL(totalAberto)}</div>
+        <div class="hint">${abertos.length} trabalho(s) pendente(s)</div>
+      </div>
+      <div class="card stat moss">
+        <div class="label">Recebido este mês</div>
+        <div class="value num">${formatBRL(recebidoMes)}</div>
+        <div class="hint">${MESES[now.getMonth()]} de ${now.getFullYear()}</div>
+      </div>
+      <div class="card stat brass">
+        <div class="label">Clientes cadastrados</div>
+        <div class="value num">${state.clientes.length}</div>
+        <div class="hint">${state.trabalhos.length} trabalho(s) no total</div>
+      </div>
+      <div class="card stat">
+        <div class="label">Faturado (histórico)</div>
+        <div class="value num">${formatBRL(faturadoTotal)}</div>
+        <div class="hint">soma de todos os trabalhos</div>
+      </div>
+    </div>
+
+    <div class="section-title"><span>Próximos vencimentos</span><span class="rule"></span></div>
+    <div class="card" style="padding:0;">
+      <table>
+        <thead><tr><th>Cliente</th><th>Trabalho</th><th>Vencimento</th><th>Saldo em aberto</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          ${proximos.length ? proximos.map(t=>`
+            <tr>
+              <td>${escapeHtml(clienteNome(t.clienteId))}</td>
+              <td>${escapeHtml(t.descricao)}</td>
+              <td class="mono">${formatDate(t.vencimento)}</td>
+              <td class="num">${formatBRL(trabalhoSaldo(t))}</td>
+              <td><span class="tag ${trabalhoStatus(t)}">${trabalhoStatus(t)}</span></td>
+              <td><button class="icon-btn" style="color:var(--moss);" data-quitar="${t.id}">Confirmar recebimento</button></td>
+            </tr>
+          `).join('') : `<tr class="empty-row"><td colspan="6">Nenhum vencimento pendente cadastrado.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+/* ============ CLIENTES ============ */
+function renderClientes(){
+  const q = state.buscaClientes.toLowerCase();
+  const lista = state.clientes.filter(c => (c.nome+c.documento).toLowerCase().includes(q));
+  return `
+    <div class="toolbar">
+      <input class="search" id="busca-clientes" placeholder="Buscar por nome ou CPF/CNPJ…" value="${escapeHtml(state.buscaClientes)}">
+      <button class="btn btn-primary" id="novo-cliente">+ Novo cliente</button>
+    </div>
+    <div class="card" style="padding:0;">
+      <table>
+        <thead><tr><th>Nome / Razão social</th><th>CPF / CNPJ</th><th>Cidade / UF</th><th>Contato</th><th></th></tr></thead>
+        <tbody>
+        ${lista.length ? lista.map(c=>`
+          <tr>
+            <td>${escapeHtml(c.nome)}</td>
+            <td class="mono">${escapeHtml(c.documento)||'—'}</td>
+            <td>${escapeHtml(c.cidade)||'—'}${c.uf?'/'+escapeHtml(c.uf):''}</td>
+            <td>${escapeHtml(c.telefone)||escapeHtml(c.email)||'—'}</td>
+            <td>
+              <div class="row-actions">
+                <button class="icon-btn" data-edit-cliente="${c.id}">Editar</button>
+                <button class="icon-btn danger" data-del-cliente="${c.id}">Excluir</button>
+              </div>
+            </td>
+          </tr>
+        `).join('') : `<tr class="empty-row"><td colspan="5">Nenhum cliente cadastrado ainda.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function clienteFormHtml(c){
+  c = c || {};
+  return `
+    <div class="field"><label>Nome / Razão social *</label><input id="f-nome" value="${escapeHtml(c.nome)||''}"></div>
+    <div class="field-row">
+      <div class="field"><label>CPF / CNPJ</label><input id="f-documento" value="${escapeHtml(c.documento)||''}" placeholder="000.000.000-00"></div>
+      <div class="field"><label>Inscrição estadual</label><input id="f-ie" value="${escapeHtml(c.ie)||''}" placeholder="Isento, se não houver"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>E-mail</label><input id="f-email" value="${escapeHtml(c.email)||''}"></div>
+      <div class="field"><label>Telefone</label><input id="f-telefone" value="${escapeHtml(c.telefone)||''}"></div>
+    </div>
+    <div class="field"><label>Endereço</label><input id="f-endereco" value="${escapeHtml(c.endereco)||''}" placeholder="Rua, número, bairro"></div>
+    <div class="field-row">
+      <div class="field"><label>Cidade</label><input id="f-cidade" value="${escapeHtml(c.cidade)||''}"></div>
+      <div class="field-row" style="grid-template-columns: 1fr 1fr;">
+        <div class="field"><label>UF</label><input id="f-uf" maxlength="2" style="text-transform:uppercase" value="${escapeHtml(c.uf)||''}"></div>
+        <div class="field"><label>CEP</label><input id="f-cep" value="${escapeHtml(c.cep)||''}"></div>
+      </div>
+    </div>
+    <div class="field"><label>Observações</label><textarea id="f-obs">${escapeHtml(c.observacoes)||''}</textarea></div>
+  `;
+}
+
+function openClienteModal(existing){
+  const isEdit = !!existing;
+  openModal(`
+    <h2>${isEdit? 'Editar cliente' : 'Novo cliente'}</h2>
+    ${clienteFormHtml(existing)}
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" id="cancelar">Cancelar</button>
+      <button class="btn btn-primary" id="salvar">Salvar</button>
+    </div>
+  `);
+  document.getElementById('cancelar').onclick = closeModal;
+  document.getElementById('salvar').onclick = async ()=>{
+    const nome = document.getElementById('f-nome').value.trim();
+    if(!nome){ await showAlert('Informe o nome ou razão social do cliente.'); return; }
+    const data = {
+      id: isEdit ? existing.id : uid(),
+      nome,
+      documento: document.getElementById('f-documento').value.trim(),
+      ie: document.getElementById('f-ie').value.trim(),
+      email: document.getElementById('f-email').value.trim(),
+      telefone: document.getElementById('f-telefone').value.trim(),
+      endereco: document.getElementById('f-endereco').value.trim(),
+      cidade: document.getElementById('f-cidade').value.trim(),
+      uf: document.getElementById('f-uf').value.trim().toUpperCase(),
+      cep: document.getElementById('f-cep').value.trim(),
+      observacoes: document.getElementById('f-obs').value.trim(),
+    };
+    const backup = state.clientes.slice();
+    if(isEdit){
+      const idx = state.clientes.findIndex(c=>c.id===existing.id);
+      state.clientes[idx] = data;
+    } else {
+      state.clientes.push(data);
+    }
+    const ok = await saveAll();
+    if(!ok){
+      state.clientes = backup;
+      await showAlert('Não foi possível salvar o cliente agora (erro no armazenamento). Seus dados continuam neste formulário — tente clicar em Salvar novamente em instantes.');
+      return;
+    }
+    closeModal();
+    render();
+  };
+}
+
+/* ============ TRABALHOS ============ */
+function renderTrabalhos(){
+  const q = state.buscaTrabalhos.toLowerCase();
+  const lista = state.trabalhos.filter(t => (t.descricao+clienteNome(t.clienteId)).toLowerCase().includes(q));
+  const grupos = groupByMonth(lista, 'dataEmissao');
+
+  function tabelaTrabalhos(items){
+    const ordenados = items.slice().sort((a,b)=>b.dataEmissao.localeCompare(a.dataEmissao));
+    return `
+      <table>
+        <thead><tr><th>Cliente</th><th>Descrição</th><th>Valor</th><th>Recebido</th><th>Saldo</th><th>Vencimento</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        ${ordenados.map(t=>`
+          <tr>
+            <td>${escapeHtml(clienteNome(t.clienteId))}</td>
+            <td>${escapeHtml(t.descricao)}</td>
+            <td class="num">${formatBRL(t.valor)}</td>
+            <td class="num">${formatBRL(trabalhoRecebido(t.id))}</td>
+            <td class="num">${formatBRL(trabalhoSaldo(t))}</td>
+            <td class="mono">${formatDate(t.vencimento)}</td>
+            <td><span class="tag ${trabalhoStatus(t)}">${trabalhoStatus(t)}</span></td>
+            <td>
+              <div class="row-actions">
+                ${trabalhoSaldo(t) > 0.004 ? `<button class="icon-btn" style="color:var(--moss);" data-quitar="${t.id}">Confirmar recebimento</button>` : ''}
+                <button class="icon-btn" data-edit-trabalho="${t.id}">Editar</button>
+                <button class="icon-btn danger" data-del-trabalho="${t.id}">Excluir</button>
+              </div>
+            </td>
+          </tr>
+        `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  return `
+    <div class="toolbar">
+      <input class="search" id="busca-trabalhos" placeholder="Buscar por descrição ou cliente…" value="${escapeHtml(state.buscaTrabalhos)}">
+      <button class="btn btn-primary" id="novo-trabalho" ${state.clientes.length? '' : 'disabled'}>+ Novo trabalho</button>
+    </div>
+    ${state.clientes.length===0 ? `<div class="field-hint warn" style="margin-bottom:14px;">Cadastre um cliente antes de lançar um trabalho.</div>` : ''}
+    ${grupos.length ? grupos.map(g=>{
+      const totalMes = g.items.reduce((s,t)=>s+Number(t.valor),0);
+      return `
+        <div class="section-title">
+          <span>${g.label}</span><span class="rule"></span>
+          <span class="num" style="font-size:13px; color:var(--paper-dim);">${g.items.length} trabalho(s) · ${formatBRL(totalMes)}</span>
+        </div>
+        <div class="card" style="padding:0; margin-bottom:24px;">${tabelaTrabalhos(g.items)}</div>
+      `;
+    }).join('') : `<div class="empty-state">Nenhum trabalho lançado ainda.</div>`}
+  `;
+}
+
+function trabalhoFormHtml(t){
+  t = t || {};
+  const opcoesClientes = state.clientes.map(c=>`<option value="${c.id}" ${t.clienteId===c.id?'selected':''}>${escapeHtml(c.nome)}</option>`).join('');
+  return `
+    <div class="field"><label>Cliente *</label><select id="f-cliente">${opcoesClientes}</select></div>
+    <div class="field"><label>Descrição do trabalho *</label><input id="f-descricao" value="${escapeHtml(t.descricao)||''}" placeholder="Ex: Consultoria mês de julho"></div>
+    <div class="field-row">
+      <div class="field"><label>Valor (R$) *</label><input id="f-valor" type="number" step="0.01" min="0" value="${t.valor??''}"></div>
+      <div class="field"><label>Data de emissão *</label><input id="f-data" type="date" value="${t.dataEmissao||todayISO()}"></div>
+    </div>
+    <div class="field"><label>Vencimento</label><input id="f-vencimento" type="date" value="${t.vencimento||''}"></div>
+    <div class="field"><label>Observações</label><textarea id="f-obs-trabalho">${escapeHtml(t.observacoes)||''}</textarea></div>
+  `;
+}
+
+function openTrabalhoModal(existing){
+  const isEdit = !!existing;
+  openModal(`
+    <h2>${isEdit? 'Editar trabalho' : 'Novo trabalho'}</h2>
+    ${trabalhoFormHtml(existing)}
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" id="cancelar">Cancelar</button>
+      <button class="btn btn-primary" id="salvar">Salvar</button>
+    </div>
+  `);
+  document.getElementById('cancelar').onclick = closeModal;
+  document.getElementById('salvar').onclick = async ()=>{
+    const clienteId = document.getElementById('f-cliente').value;
+    const descricao = document.getElementById('f-descricao').value.trim();
+    const valor = parseFloat(document.getElementById('f-valor').value);
+    const dataEmissao = document.getElementById('f-data').value;
+    if(!clienteId || !descricao || isNaN(valor) || valor<=0 || !dataEmissao){
+      await showAlert('Preencha cliente, descrição, valor e data de emissão.'); return;
+    }
+    const data = {
+      id: isEdit? existing.id : uid(),
+      clienteId, descricao, valor, dataEmissao,
+      vencimento: document.getElementById('f-vencimento').value || '',
+      observacoes: document.getElementById('f-obs-trabalho').value.trim(),
+    };
+    const backup = state.trabalhos.slice();
+    if(isEdit){
+      const idx = state.trabalhos.findIndex(x=>x.id===existing.id);
+      state.trabalhos[idx] = data;
+    } else {
+      state.trabalhos.push(data);
+    }
+    const ok = await saveAll();
+    if(!ok){
+      state.trabalhos = backup;
+      await showAlert('Não foi possível salvar o trabalho agora (erro no armazenamento). Seus dados continuam neste formulário — tente clicar em Salvar novamente em instantes.');
+      return;
+    }
+    closeModal(); render();
+  };
+}
+
+/* ============ RECEBIMENTOS ============ */
+function renderRecebimentos(){
+  const lista = state.recebimentos.slice();
+  const grupos = groupByMonth(lista, 'data');
+  const trabalhosDisponiveis = state.trabalhos.length > 0;
+
+  function tabelaRecebimentos(items){
+    const ordenados = items.slice().sort((a,b)=>b.data.localeCompare(a.data));
+    return `
+      <table>
+        <thead><tr><th>Data</th><th>Cliente / Trabalho</th><th>Forma</th><th>Valor recebido</th><th></th></tr></thead>
+        <tbody>
+        ${ordenados.map(r=>{
+          const trabalho = state.trabalhos.find(t=>t.id===r.trabalhoId);
+          return `
+          <tr>
+            <td class="mono">${formatDate(r.data)}</td>
+            <td>${trabalho ? escapeHtml(trabalhoLabel(trabalho)) : '(trabalho removido)'}</td>
+            <td>${escapeHtml(r.forma)}</td>
+            <td class="num">${formatBRL(r.valor)}</td>
+            <td>
+              <div class="row-actions">
+                <button class="icon-btn danger" data-del-recebimento="${r.id}">Excluir</button>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  return `
+    <div class="toolbar">
+      <div></div>
+      <button class="btn btn-primary" id="novo-recebimento" ${trabalhosDisponiveis? '' : 'disabled'}>+ Registrar recebimento</button>
+    </div>
+    ${!trabalhosDisponiveis ? `<div class="field-hint warn" style="margin-bottom:14px;">Cadastre um trabalho antes de registrar um recebimento.</div>` : ''}
+    ${grupos.length ? grupos.map(g=>{
+      const totalMes = g.items.reduce((s,r)=>s+Number(r.valor),0);
+      return `
+        <div class="section-title">
+          <span>${g.label}</span><span class="rule"></span>
+          <span class="num" style="font-size:13px; color:var(--moss);">${g.items.length} recebimento(s) · ${formatBRL(totalMes)}</span>
+        </div>
+        <div class="card" style="padding:0; margin-bottom:24px;">${tabelaRecebimentos(g.items)}</div>
+      `;
+    }).join('') : `<div class="empty-state">Nenhum recebimento registrado ainda.</div>`}
+  `;
+}
+
+function openRecebimentoModal(prefillTrabalhoId){
+  const abertos = state.trabalhos.filter(t=>trabalhoSaldo(t) > 0.004);
+  const outros = state.trabalhos.filter(t=>trabalhoSaldo(t) <= 0.004);
+  const opcoes = [
+    ...abertos.map(t=>`<option value="${t.id}" ${t.id===prefillTrabalhoId?'selected':''}>${escapeHtml(trabalhoLabel(t))} — saldo ${formatBRL(trabalhoSaldo(t))}</option>`),
+    ...outros.map(t=>`<option value="${t.id}" ${t.id===prefillTrabalhoId?'selected':''}>${escapeHtml(trabalhoLabel(t))} — quitado</option>`)
+  ].join('');
+  const trabalhoPrefill = prefillTrabalhoId ? state.trabalhos.find(t=>t.id===prefillTrabalhoId) : null;
+  const valorPrefill = trabalhoPrefill ? trabalhoSaldo(trabalhoPrefill).toFixed(2) : '';
+  openModal(`
+    <h2>${trabalhoPrefill ? 'Confirmar recebimento' : 'Registrar recebimento'}</h2>
+    <div class="field"><label>Trabalho *</label><select id="f-trabalho">${opcoes}</select></div>
+    <div class="field-hint" id="saldo-hint"></div>
+    <div class="field-row">
+      <div class="field"><label>Valor recebido (R$) *</label><input id="f-valor-receb" type="number" step="0.01" min="0" value="${valorPrefill}"></div>
+      <div class="field"><label>Data *</label><input id="f-data-receb" type="date" value="${todayISO()}"></div>
+    </div>
+    <div class="field"><label>Forma de pagamento</label>
+      <select id="f-forma">${FORMAS_PAGAMENTO.map(f=>`<option value="${f}">${f}</option>`).join('')}</select>
+    </div>
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" id="cancelar">Cancelar</button>
+      <button class="btn btn-primary" id="salvar">Salvar</button>
+    </div>
+  `);
+  const selectTrabalho = document.getElementById('f-trabalho');
+  function updateHint(){
+    const t = state.trabalhos.find(t=>t.id===selectTrabalho.value);
+    const hint = document.getElementById('saldo-hint');
+    if(t) hint.textContent = `Saldo em aberto atual: ${formatBRL(trabalhoSaldo(t))}`;
+  }
+  selectTrabalho.onchange = updateHint;
+  updateHint();
+
+  document.getElementById('cancelar').onclick = closeModal;
+  document.getElementById('salvar').onclick = async ()=>{
+    const trabalhoId = selectTrabalho.value;
+    const valor = parseFloat(document.getElementById('f-valor-receb').value);
+    const data = document.getElementById('f-data-receb').value;
+    if(!trabalhoId || isNaN(valor) || valor<=0 || !data){
+      await showAlert('Preencha o trabalho, valor e data.'); return;
+    }
+    const t = state.trabalhos.find(t=>t.id===trabalhoId);
+    const saldo = trabalhoSaldo(t);
+    if(valor > saldo + 0.004){
+      if(!(await showConfirm(`O valor informado (${formatBRL(valor)}) é maior que o saldo em aberto (${formatBRL(saldo)}). Deseja continuar mesmo assim?`))) return;
+    }
+    const backup = state.recebimentos.slice();
+    state.recebimentos.push({
+      id: uid(), trabalhoId, valor, data,
+      forma: document.getElementById('f-forma').value
+    });
+    const ok = await saveAll();
+    if(!ok){
+      state.recebimentos = backup;
+      await showAlert('Não foi possível salvar o recebimento agora (erro no armazenamento). Seus dados continuam neste formulário — tente clicar em Salvar novamente em instantes.');
+      return;
+    }
+    closeModal(); render();
+  };
+}
+
+/* ============ RELATÓRIOS ============ */
+function renderRelatorios(){
+  const { mes, ano } = state.relatorio;
+  const recebimentosMes = state.recebimentos.filter(r=>{
+    const d = new Date(r.data+'T00:00:00');
+    return d.getMonth()===mes && d.getFullYear()===ano;
+  }).sort((a,b)=>a.data.localeCompare(b.data));
+  const totalRecebidoMes = recebimentosMes.reduce((s,r)=>s+Number(r.valor),0);
+
+  const trabalhosMes = state.trabalhos.filter(t=>{
+    const d = new Date(t.dataEmissao+'T00:00:00');
+    return d.getMonth()===mes && d.getFullYear()===ano;
+  }).sort((a,b)=>a.dataEmissao.localeCompare(b.dataEmissao));
+  const totalFaturadoMes = trabalhosMes.reduce((s,t)=>s+Number(t.valor),0);
+
+  const emAberto = state.trabalhos.filter(t=>trabalhoSaldo(t)>0.004)
+    .sort((a,b)=>(a.vencimento||'9999').localeCompare(b.vencimento||'9999'));
+  const totalEmAberto = emAberto.reduce((s,t)=>s+trabalhoSaldo(t),0);
+
+  const anoAtual = new Date().getFullYear();
+  const opcoesAno = [anoAtual-1, anoAtual, anoAtual+1].map(a=>`<option value="${a}" ${a===ano?'selected':''}>${a}</option>`).join('');
+  const opcoesMes = MESES.map((m,i)=>`<option value="${i}" ${i===mes?'selected':''}>${m}</option>`).join('');
+
+  return `
+    <div class="toolbar">
+      <div style="display:flex; gap:10px;">
+        <select class="month-select" id="sel-mes">${opcoesMes}</select>
+        <select class="month-select" id="sel-ano">${opcoesAno}</select>
+      </div>
+      <button class="btn btn-ghost" id="exportar-csv">Baixar CSV do mês</button>
+    </div>
+
+    <div class="ticket" style="margin-bottom:28px;">
+      <div class="ticket-head">
+        <div>
+          <div class="titulo">Extrato — ${MESES[mes]} de ${ano}</div>
+          <div class="periodo">gerado em ${new Date().toLocaleDateString('pt-BR')}</div>
+        </div>
+      </div>
+      <div class="ticket-nums">
+        <div class="tn moss"><div class="label">Recebido no mês</div><div class="value num">${formatBRL(totalRecebidoMes)}</div></div>
+        <div class="tn"><div class="label">Faturado no mês</div><div class="value num">${formatBRL(totalFaturadoMes)}</div></div>
+        <div class="tn rust"><div class="label">Em aberto (total)</div><div class="value num">${formatBRL(totalEmAberto)}</div></div>
+      </div>
+    </div>
+
+    <div class="section-title"><span>Recebimentos de ${MESES[mes]}</span><span class="rule"></span><span class="badge-count">${recebimentosMes.length}</span></div>
+    <div class="card" style="padding:0; margin-bottom:28px;">
+      <table>
+        <thead><tr><th>Data</th><th>Cliente / Trabalho</th><th>Forma</th><th>Valor</th></tr></thead>
+        <tbody>
+        ${recebimentosMes.length ? recebimentosMes.map(r=>{
+          const t = state.trabalhos.find(t=>t.id===r.trabalhoId);
+          return `<tr><td class="mono">${formatDate(r.data)}</td><td>${t?escapeHtml(trabalhoLabel(t)):'—'}</td><td>${escapeHtml(r.forma)}</td><td class="num">${formatBRL(r.valor)}</td></tr>`;
+        }).join('') : `<tr class="empty-row"><td colspan="4">Nenhum recebimento neste período.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section-title"><span>Trabalhos emitidos em ${MESES[mes]}</span><span class="rule"></span><span class="badge-count">${trabalhosMes.length}</span></div>
+    <div class="card" style="padding:0; margin-bottom:28px;">
+      <table>
+        <thead><tr><th>Cliente</th><th>Descrição</th><th>Emissão</th><th>Valor</th><th>Status</th></tr></thead>
+        <tbody>
+        ${trabalhosMes.length ? trabalhosMes.map(t=>`
+          <tr><td>${escapeHtml(clienteNome(t.clienteId))}</td><td>${escapeHtml(t.descricao)}</td><td class="mono">${formatDate(t.dataEmissao)}</td><td class="num">${formatBRL(t.valor)}</td><td><span class="tag ${trabalhoStatus(t)}">${trabalhoStatus(t)}</span></td></tr>
+        `).join('') : `<tr class="empty-row"><td colspan="5">Nenhum trabalho emitido neste período.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section-title"><span>Situação atual — todos os valores em aberto</span><span class="rule"></span><span class="badge-count">${emAberto.length}</span></div>
+    <div class="card" style="padding:0;">
+      <table>
+        <thead><tr><th>Cliente</th><th>Trabalho</th><th>Vencimento</th><th>Saldo em aberto</th></tr></thead>
+        <tbody>
+        ${emAberto.length ? emAberto.map(t=>`
+          <tr><td>${escapeHtml(clienteNome(t.clienteId))}</td><td>${escapeHtml(t.descricao)}</td><td class="mono">${formatDate(t.vencimento)}</td><td class="num">${formatBRL(trabalhoSaldo(t))}</td></tr>
+        `).join('') : `<tr class="empty-row"><td colspan="4">Nenhum valor em aberto no momento. Tudo em dia.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function exportarCSV(){
+  const { mes, ano } = state.relatorio;
+  const recebimentosMes = state.recebimentos.filter(r=>{
+    const d = new Date(r.data+'T00:00:00');
+    return d.getMonth()===mes && d.getFullYear()===ano;
+  });
+  let csv = 'Data;Cliente;Trabalho;Forma;Valor\n';
+  recebimentosMes.forEach(r=>{
+    const t = state.trabalhos.find(t=>t.id===r.trabalhoId);
+    csv += `${formatDate(r.data)};${t?clienteNome(t.clienteId):''};${t?t.descricao:''};${r.forma};${Number(r.valor).toFixed(2).replace('.',',')}\n`;
+  });
+  const blob = new Blob(["\uFEFF"+csv], { type:'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `recebimentos-${MESES[mes]}-${ano}.csv`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+/* ============ MODAL SHELL ============ */
+function openModal(innerHtml){
+  document.getElementById('modal-root').innerHTML = `
+    <div class="overlay" id="overlay">
+      <div class="dialog">${innerHtml}</div>
+    </div>
+  `;
+  document.getElementById('overlay').addEventListener('mousedown', (e)=>{
+    if(e.target.id === 'overlay') closeModal();
+  });
+}
+function closeModal(){ document.getElementById('modal-root').innerHTML = ''; }
+
+function showAlert(msg){
+  return new Promise(resolve=>{
+    document.getElementById('confirm-root').innerHTML = `
+      <div class="overlay" id="alert-overlay">
+        <div class="dialog" style="max-width:420px;">
+          <h2>Aviso</h2>
+          <p style="margin-bottom:20px; font-size:13.5px; line-height:1.6; color:var(--paper);">${escapeHtml(msg)}</p>
+          <div class="dialog-actions">
+            <button class="btn btn-primary" id="alert-ok">Entendi</button>
+          </div>
+        </div>
+      </div>
+    `;
+    const done = ()=>{ document.getElementById('confirm-root').innerHTML=''; resolve(); };
+    document.getElementById('alert-ok').onclick = done;
+  });
+}
+
+function showConfirm(msg){
+  return new Promise(resolve=>{
+    document.getElementById('confirm-root').innerHTML = `
+      <div class="overlay" id="confirm-overlay">
+        <div class="dialog" style="max-width:440px;">
+          <h2>Confirmar ação</h2>
+          <p style="margin-bottom:20px; font-size:13.5px; line-height:1.6; color:var(--paper);">${escapeHtml(msg)}</p>
+          <div class="dialog-actions">
+            <button class="btn btn-ghost" id="confirm-no">Cancelar</button>
+            <button class="btn btn-primary" id="confirm-yes">Confirmar</button>
+          </div>
+        </div>
+      </div>
+    `;
+    const finish = (val)=>{ document.getElementById('confirm-root').innerHTML=''; resolve(val); };
+    document.getElementById('confirm-no').onclick = ()=>finish(false);
+    document.getElementById('confirm-yes').onclick = ()=>finish(true);
+  });
+}
+
+/* ============ EVENT WIRING ============ */
+function attachViewHandlers(){
+  const importarBtn = document.getElementById('importar-seed');
+  if(importarBtn) importarBtn.addEventListener('click', importarSeed);
+
+  // Clientes
+  const buscaC = document.getElementById('busca-clientes');
+  if(buscaC) buscaC.addEventListener('input', e=>{ state.buscaClientes = e.target.value; render(); document.getElementById('busca-clientes').focus(); document.getElementById('busca-clientes').selectionStart = document.getElementById('busca-clientes').value.length; });
+  const novoCliente = document.getElementById('novo-cliente');
+  if(novoCliente) novoCliente.addEventListener('click', ()=>openClienteModal());
+  document.querySelectorAll('[data-edit-cliente]').forEach(b=>{
+    b.addEventListener('click', ()=>openClienteModal(state.clientes.find(c=>c.id===b.dataset.editCliente)));
+  });
+  document.querySelectorAll('[data-del-cliente]').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      const temTrabalhos = state.trabalhos.some(t=>t.clienteId===b.dataset.delCliente);
+      const msg = temTrabalhos
+        ? 'Este cliente possui trabalhos vinculados. Excluir mesmo assim? Os trabalhos permanecerão, mas sem cliente associado.'
+        : 'Excluir este cliente?';
+      if(!(await showConfirm(msg))) return;
+      const backup = state.clientes.slice();
+      state.clientes = state.clientes.filter(c=>c.id!==b.dataset.delCliente);
+      const ok = await saveAll();
+      if(!ok){
+        state.clientes = backup;
+        await showAlert('Não foi possível excluir agora (erro no armazenamento). Tente novamente em instantes.');
+        return;
+      }
+      render();
+    });
+  });
+
+  // Trabalhos
+  const buscaT = document.getElementById('busca-trabalhos');
+  if(buscaT) buscaT.addEventListener('input', e=>{ state.buscaTrabalhos = e.target.value; render(); document.getElementById('busca-trabalhos').focus(); document.getElementById('busca-trabalhos').selectionStart = document.getElementById('busca-trabalhos').value.length; });
+  const novoTrabalho = document.getElementById('novo-trabalho');
+  if(novoTrabalho) novoTrabalho.addEventListener('click', ()=>openTrabalhoModal());
+  document.querySelectorAll('[data-edit-trabalho]').forEach(b=>{
+    b.addEventListener('click', ()=>openTrabalhoModal(state.trabalhos.find(t=>t.id===b.dataset.editTrabalho)));
+  });
+  document.querySelectorAll('[data-quitar]').forEach(b=>{
+    b.addEventListener('click', ()=>openRecebimentoModal(b.dataset.quitar));
+  });
+  document.querySelectorAll('[data-del-trabalho]').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      const temRecebimentos = state.recebimentos.some(r=>r.trabalhoId===b.dataset.delTrabalho);
+      const msg = temRecebimentos
+        ? 'Este trabalho possui recebimentos registrados. Excluir mesmo assim? Os recebimentos ficarão órfãos.'
+        : 'Excluir este trabalho?';
+      if(!(await showConfirm(msg))) return;
+      const backup = state.trabalhos.slice();
+      state.trabalhos = state.trabalhos.filter(t=>t.id!==b.dataset.delTrabalho);
+      const ok = await saveAll();
+      if(!ok){
+        state.trabalhos = backup;
+        await showAlert('Não foi possível excluir agora (erro no armazenamento). Tente novamente em instantes.');
+        return;
+      }
+      render();
+    });
+  });
+
+  // Recebimentos
+  const novoRecebimento = document.getElementById('novo-recebimento');
+  if(novoRecebimento) novoRecebimento.addEventListener('click', ()=>openRecebimentoModal());
+  document.querySelectorAll('[data-del-recebimento]').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      if(!(await showConfirm('Excluir este recebimento?'))) return;
+      const backup = state.recebimentos.slice();
+      state.recebimentos = state.recebimentos.filter(r=>r.id!==b.dataset.delRecebimento);
+      const ok = await saveAll();
+      if(!ok){
+        state.recebimentos = backup;
+        await showAlert('Não foi possível excluir agora (erro no armazenamento). Tente novamente em instantes.');
+        return;
+      }
+      render();
+    });
+  });
+
+  // Relatórios
+  const selMes = document.getElementById('sel-mes');
+  const selAno = document.getElementById('sel-ano');
+  if(selMes) selMes.addEventListener('change', e=>{ state.relatorio.mes = Number(e.target.value); render(); });
+  if(selAno) selAno.addEventListener('change', e=>{ state.relatorio.ano = Number(e.target.value); render(); });
+  const exportBtn = document.getElementById('exportar-csv');
+  if(exportBtn) exportBtn.addEventListener('click', exportarCSV);
+}
+
+/* A conexão com o Google é iniciada automaticamente quando o script do Google carrega (veja onload= no <head>). */
+</script>
+</body>
+</html>
