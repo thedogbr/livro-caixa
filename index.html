@@ -201,11 +201,13 @@ th.sortable.active .arrow{ opacity:1; color: var(--brass); }
 }
 .filter-banner button{ all:unset; cursor:pointer; color:var(--brass); font-weight:600; }
 
-.chart-bars{ display:flex; align-items:flex-end; gap:10px; height:140px; padding-top:20px; }
-.chart-bar{ flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; }
-.chart-bar .bar{ width:100%; background: var(--moss); border-radius: 2px 2px 0 0; min-height:2px; }
+.chart-bars{ display:flex; align-items:stretch; gap:10px; height:160px; padding-top:10px; }
+.chart-bar{ flex:1; display:flex; flex-direction:column; align-items:center; height:100%; }
+.chart-bar .bar-track{ flex:1; width:100%; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:6px; }
+.chart-bar .bar{ width:100%; background: var(--moss); border-radius: 2px 2px 0 0; min-height:3px; transition: opacity .15s; }
+.chart-bar .bar.bar-max{ background: var(--brass); }
 .chart-bar .bar-value{ font-size:10px; color:var(--paper-dim); font-family:'IBM Plex Mono', monospace; }
-.chart-bar .bar-label{ font-size:10px; color:var(--paper-dim); text-transform:uppercase; }
+.chart-bar .bar-label{ font-size:10px; color:var(--paper-dim); text-transform:uppercase; margin-top:8px; }
 
 .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 .icon-btn{
@@ -765,18 +767,24 @@ function renderPainel(){
 
   // Gráfico dos últimos 6 meses com recebimentos
   const gruposRecebido = groupByMonth(state.recebimentos, 'data').slice(0,6).reverse();
-  const maxValor = Math.max(1, ...gruposRecebido.map(g=>g.items.reduce((s,r)=>s+Number(r.valor),0)));
+  const totais = gruposRecebido.map(g=>g.items.reduce((s,r)=>s+Number(r.valor),0));
+  const maxValor = Math.max(1, ...totais);
   const chartHtml = gruposRecebido.length ? `
     <div class="chart-bars">
-      ${gruposRecebido.map(g=>{
-        const total = g.items.reduce((s,r)=>s+Number(r.valor),0);
-        const alturaPct = Math.max(2, (total/maxValor)*100);
+      ${gruposRecebido.map((g,i)=>{
+        const total = totais[i];
+        const ratio = total/maxValor;
+        const alturaPct = Math.max(3, ratio*100);
+        const ehMax = total === maxValor && total > 0;
+        const opacidade = ehMax ? 1 : (0.35 + ratio*0.55).toFixed(2);
         const [ano, mes] = g.key.split('-');
         const labelMes = mes==='00' ? '—' : MESES[Number(mes)-1].slice(0,3);
         return `
           <div class="chart-bar">
-            <div class="bar-value">${formatBRL(total).replace('R$','').trim()}</div>
-            <div class="bar" style="height:${alturaPct}%;"></div>
+            <div class="bar-track">
+              <div class="bar-value">${formatBRL(total).replace('R$','').trim()}</div>
+              <div class="bar ${ehMax?'bar-max':''}" style="height:${alturaPct}%; opacity:${opacidade};"></div>
+            </div>
             <div class="bar-label">${labelMes}/${ano.slice(2)}</div>
           </div>
         `;
