@@ -361,7 +361,7 @@ const state = {
   recebimentos: [],
   contas: [],
   ready: false,
-  relatorio: { mes: new Date().getMonth(), ano: new Date().getFullYear() },
+  relatorio: { mes: new Date().getMonth(), ano: new Date().getFullYear(), modo: 'mensal', filtroConta: null },
   buscaClientes: '',
   buscaTrabalhos: '',
   filtroClienteId: null,
@@ -1321,7 +1321,18 @@ function openRecebimentoModal(prefillTrabalhoId, existing){
 
 /* ============ RELATÓRIOS ============ */
 function renderRelatorios(){
-  const { mes, ano } = state.relatorio;
+  const { mes, ano, modo } = state.relatorio;
+  const anoAtual = new Date().getFullYear();
+  const opcoesAno = [anoAtual-2, anoAtual-1, anoAtual, anoAtual+1].map(a=>`<option value="${a}" ${a===ano?'selected':''}>${a}</option>`).join('');
+  const toggleModo = `
+    <div style="display:flex; gap:6px;">
+      <button class="btn ${modo==='mensal'?'btn-primary':'btn-ghost'}" id="modo-mensal">Mensal</button>
+      <button class="btn ${modo==='anual'?'btn-primary':'btn-ghost'}" id="modo-anual">Anual</button>
+    </div>
+  `;
+
+  if(modo === 'anual') return renderRelatorioAnual(toggleModo, opcoesAno);
+
   const recebimentosMes = state.recebimentos.filter(r=>{
     const d = new Date(r.data+'T00:00:00');
     return d.getMonth()===mes && d.getFullYear()===ano;
@@ -1340,13 +1351,12 @@ function renderRelatorios(){
   }).sort((a,b)=>(a.vencimento||'9999').localeCompare(b.vencimento||'9999'));
   const totalEmAberto = emAberto.reduce((s,t)=>s+trabalhoSaldo(t),0);
 
-  const anoAtual = new Date().getFullYear();
-  const opcoesAno = [anoAtual-1, anoAtual, anoAtual+1].map(a=>`<option value="${a}" ${a===ano?'selected':''}>${a}</option>`).join('');
   const opcoesMes = MESES.map((m,i)=>`<option value="${i}" ${i===mes?'selected':''}>${m}</option>`).join('');
 
   return `
     <div class="toolbar">
       <div style="display:flex; gap:10px;">
+        ${toggleModo}
         <select class="month-select" id="sel-mes">${opcoesMes}</select>
         <select class="month-select" id="sel-ano">${opcoesAno}</select>
       </div>
@@ -1419,6 +1429,94 @@ function renderRelatorios(){
 
     <div style="display:flex; justify-content:flex-end; margin-top:24px;">
       <button class="btn btn-ghost" id="baixar-backup">Baixar backup completo (JSON)</button>
+    </div>
+  `;
+}
+
+function renderRelatorioAnual(toggleModo, opcoesAno){
+  const { ano, filtroConta } = state.relatorio;
+
+  const recebimentosAnoTodos = state.recebimentos.filter(r=>{
+    const d = new Date(r.data+'T00:00:00');
+    return d.getFullYear()===ano;
+  });
+  const recebimentosAnoFiltrados = filtroConta ? recebimentosAnoTodos.filter(r=>r.contaId===filtroConta) : recebimentosAnoTodos;
+  const totalRecebidoAno = recebimentosAnoFiltrados.reduce((s,r)=>s+Number(r.valor),0);
+
+  const trabalhosAno = state.trabalhos.filter(t=>{
+    const d = new Date(t.dataEmissao+'T00:00:00');
+    return d.getFullYear()===ano;
+  });
+  const totalFaturadoAno = trabalhosAno.reduce((s,t)=>s+Number(t.valor),0);
+  const totalEmAbertoAno = trabalhosAno.reduce((s,t)=>{
+    const saldo = trabalhoSaldo(t);
+    return s + (saldo>0.004 ? saldo : 0);
+  },0);
+
+  // Meses com movimentação (considerando qualquer conta, para não esconder meses que só tiveram atividade em outra conta)
+  const mesesComMovimento = [];
+  for(let m=0; m<12; m++){
+    const recebidoMesTodos = recebimentosAnoTodos.filter(r=> new Date(r.data+'T00:00:00').getMonth()===m).reduce((s,r)=>s+Number(r.valor),0);
+    const faturadoMes = trabalhosAno.filter(t=> new Date(t.dataEmissao+'T00:00:00').getMonth()===m).reduce((s,t)=>s+Number(t.valor),0);
+    if(recebidoMesTodos > 0 || faturadoMes > 0){
+      const recebidoMesFiltrado = recebimentosAnoFiltrados.filter(r=> new Date(r.data+'T00:00:00').getMonth()===m).reduce((s,r)=>s+Number(r.valor),0);
+      mesesComMovimento.push({ mes:m, recebido: recebidoMesFiltrado, faturado: faturadoMes });
+    }
+  }
+
+  const opcoesContaFiltro = state.contas.map(c=>`<option value="${c.id}" ${filtroConta===c.id?'selected':''}>${escapeHtml(c.nome)}</option>`).join('');
+
+  return `
+    <div class="toolbar">
+      <div style="display:flex; gap:10px;">
+        ${toggleModo}
+        <select class="month-select" id="sel-ano-anual">${opcoesAno}</select>
+        <select class="month-select" id="filtro-conta-relatorio">
+          <option value="">Todas as contas</option>
+          ${opcoesContaFiltro}
+        </select>
+      </div>
+    </div>
+
+    <div class="ticket" style="margin-bottom:28px;">
+      <div class="ticket-head">
+        <div>
+          <div class="titulo">Extrato anual — ${ano}</div>
+          <div class="periodo">${filtroConta ? escapeHtml(contaNome(filtroConta)) : 'Todas as contas'} · gerado em ${new Date().toLocaleDateString('pt-BR')}</div>
+        </div>
+      </div>
+      <div class="ticket-nums">
+        <div class="tn moss"><div class="label">Recebido no ano</div><div class="value num">${formatBRL(totalRecebidoAno)}</div></div>
+        <div class="tn"><div class="label">Faturado no ano</div><div class="value num">${formatBRL(totalFaturadoAno)}</div></div>
+        <div class="tn rust"><div class="label">Em aberto (trabalhos do ano)</div><div class="value num">${formatBRL(totalEmAbertoAno)}</div></div>
+      </div>
+    </div>
+
+    <div class="section-title"><span>Recebido por conta em ${ano}</span><span class="rule"></span></div>
+    <div class="grid grid-4" style="margin-bottom:28px;">
+      ${state.contas.map(c=>{
+        const totalConta = recebimentosAnoTodos.filter(r=>r.contaId===c.id).reduce((s,r)=>s+Number(r.valor),0);
+        return `
+          <div class="card stat ${filtroConta===c.id?'brass':''}">
+            <div class="label">${escapeHtml(c.nome)}</div>
+            <div class="value num" style="font-size:20px;">${formatBRL(totalConta)}</div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+
+    <div class="section-title">
+      <span>Meses com movimentação em ${ano}</span><span class="rule"></span><span class="badge-count">${mesesComMovimento.length}</span>
+    </div>
+    <div class="card" style="padding:0;">
+      <table>
+        <thead><tr><th>Mês</th><th>Recebido${filtroConta?` — ${escapeHtml(contaNome(filtroConta))}`:''}</th><th>Faturado</th></tr></thead>
+        <tbody>
+        ${mesesComMovimento.length ? mesesComMovimento.map(m=>`
+          <tr><td>${MESES[m.mes]}</td><td class="num">${formatBRL(m.recebido)}</td><td class="num">${formatBRL(m.faturado)}</td></tr>
+        `).join('') : `<tr class="empty-row"><td colspan="3">Nenhuma movimentação registrada em ${ano}.</td></tr>`}
+        </tbody>
+      </table>
     </div>
   `;
 }
@@ -1701,6 +1799,14 @@ function attachViewHandlers(){
   if(selAno) selAno.addEventListener('change', e=>{ state.relatorio.ano = Number(e.target.value); render(); });
   const exportBtn = document.getElementById('exportar-csv');
   if(exportBtn) exportBtn.addEventListener('click', exportarCSV);
+  const modoMensal = document.getElementById('modo-mensal');
+  const modoAnual = document.getElementById('modo-anual');
+  if(modoMensal) modoMensal.addEventListener('click', ()=>{ state.relatorio.modo = 'mensal'; render(); });
+  if(modoAnual) modoAnual.addEventListener('click', ()=>{ state.relatorio.modo = 'anual'; render(); });
+  const selAnoAnual = document.getElementById('sel-ano-anual');
+  if(selAnoAnual) selAnoAnual.addEventListener('change', e=>{ state.relatorio.ano = Number(e.target.value); render(); });
+  const filtroContaRelatorio = document.getElementById('filtro-conta-relatorio');
+  if(filtroContaRelatorio) filtroContaRelatorio.addEventListener('change', e=>{ state.relatorio.filtroConta = e.target.value || null; render(); });
 }
 
 /* A conexão com o Google é iniciada automaticamente quando o script do Google carrega (veja onload= no <head>). */
