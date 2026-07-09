@@ -386,6 +386,18 @@ const SEED_DATA = [
   {mes:6, cliente:'Cooperfarms', trabalho:'Dia de Campo Sorgo', valor:1800.00, recebido:false},
 ];
 
+/* Novos clientes e atualizações cadastrais enviadas em julho/2026 */
+const CLIENTES_SEED_V2 = [
+  { matchNome: 'Cooperfarms', nome: 'Cooperfarms — Cooperativa dos Produtores Rurais da Bahia', documento: '10.333.574/0001-35', ie: '', email: 'financeiro@cooperfarms.com.br', telefone: '', endereco: 'Avenida Luís Eduardo Magalhães, nº 2391, Jardim das Acácias', cidade: 'Luís Eduardo Magalhães', uf: 'BA', cep: '47.862-090', observacoes: '' },
+  { matchNome: 'CiaSeeds', nome: 'CiaSeeds — Ciaseeds Agronegócios LTDA (matriz atual)', documento: '15.302.951/0001-92', ie: '100.685.721 – NO', email: 'escritoriolem@ciaseeds.com.br', telefone: '(77) 3639-3502 / (77) 99919-8349', endereco: 'Rodovia BR 020, KM 03 – Zona Rural', cidade: 'Correntina', uf: 'BA', cep: '47.650-000', observacoes: 'E-mail fiscal: contabil1@ciaseeds.com.br. E-mail comercial: comercial@ciaseeds.com.br / auxiliarcomercial@ciaseeds.com.br. Assumi que este é o cadastro atual (NOVA) — confirme se é este mesmo que já tinha trabalhos lançados.' },
+  { nome: 'ABAPA — Associação Baiana dos Produtores de Algodão', documento: '03.932.543/0001-35', ie: 'Isento', email: '', telefone: '(77) 3614-9000', endereco: 'Av. Ahylon Macedo, nº 919, Sala 01 – Bairro Morada Nobre', cidade: 'Barreiras', uf: 'BA', cep: '47.810-035', observacoes: '' },
+  { nome: 'CiaSeeds Filial LEM', documento: '15.302.951/0002-73', ie: '200.721.774 – NO', email: 'auxiliarcontabil1@ciaseeds.com.br', telefone: '(77) 3628-5317', endereco: 'Rua Juscelino Kubitschek, 806, Quadra 04, Lote 08 e 09 – Bairro Jardim Paraíso', cidade: 'Luís Eduardo Magalhães', uf: 'BA', cep: '47.855-676', observacoes: 'Outros e-mails: auxiliarfinanceiro@ciaseeds.com.br, coordenadorcontabil@ciaseeds.com.br' },
+  { nome: 'CiaSeeds (Laerte Baechtold) — cadastro antigo', documento: '444.601.209-68', ie: '1088413', email: 'escritoriolem@ciaseeds.com.br', telefone: '(77) 3639-3205', endereco: 'Av. Paraíso, Qd 09, Lt 04, Jardim Paraíso, nº 08, Sala 01', cidade: 'Luís Eduardo Magalhães', uf: 'BA', cep: '47.850-000', observacoes: 'Documento no formato de CPF, possivelmente cadastro de pessoa física anterior à empresa atual (verifique).' },
+  { nome: 'Galvani — FOSNOR - Fosfatados do Norte-Nordeste S/A', documento: '32.112.142/0003-07', ie: '99018354', email: 'fiscal@galvani.ind.br', telefone: '(77) 3628-9800 / (19) 3516-2700', endereco: 'Av. Luís Eduardo Magalhães, 2071, Jardim das Acácias, 1ª Etapa', cidade: 'Luís Eduardo Magalhães', uf: 'BA', cep: '47.850-000', observacoes: '' },
+  { nome: 'Uniagro — União Comercial Agrícola LTDA-ME', documento: '07.239.076/0001-13', ie: '66424967', email: 'juliana@uniagro.agr.br', telefone: '(77) 3628-5288', endereco: 'Av. Luís Eduardo Magalhães, 0, Vereda Tropical', cidade: 'Luís Eduardo Magalhães', uf: 'BA', cep: '47.850-000', observacoes: 'Inscrição Municipal: 218705' },
+  { nome: 'Fama Motors (Mitsubishi Barreiras) — Paraíso Motors Comércio de Veículos LTDA', documento: '08.270.608/0001-48', ie: '69.840.926', email: 'nfe.bar@famamotors.com.br', telefone: '(77) 3612-9150', endereco: 'Av. Barão do Rio Branco, 375, Galpão Lote P/01A, Loteamento JK, Bairro Vila Rica', cidade: 'Barreiras', uf: 'BA', cep: '', observacoes: 'Inscrição Municipal: 6.338' },
+];
+
 /* ============ CONFIGURAÇÃO DO GOOGLE DRIVE ============ */
 /* Substitua pela sua Client ID do Google Cloud Console (veja instruções enviadas junto com este arquivo) */
 const GOOGLE_CLIENT_ID = '684141921511-f8dhv57ka160cdl21jp6gvse1jk2sdbp.apps.googleusercontent.com';
@@ -496,7 +508,8 @@ async function driveSave(data){
 async function saveAll(){
   const ok = await driveSave({
     clientes: state.clientes, trabalhos: state.trabalhos,
-    recebimentos: state.recebimentos, seedImportado: state.seedImportado
+    recebimentos: state.recebimentos, seedImportado: state.seedImportado,
+    clientesV2Importado: state.clientesV2Importado
   });
   if(!ok){
     await showAlert('Não foi possível salvar no Google Drive agora. Verifique sua conexão com a internet e tente novamente — se o problema continuar, talvez seja preciso reconectar (recarregue a página e clique em Conectar ao Google Drive de novo).');
@@ -515,6 +528,7 @@ async function bootAfterAuth(){
     state.trabalhos = data.trabalhos || [];
     state.recebimentos = data.recebimentos || [];
     state.seedImportado = data.seedImportado || false;
+    state.clientesV2Importado = data.clientesV2Importado || false;
     state.ready = true;
     document.getElementById('app-loading').style.display = 'none';
     document.getElementById('app').style.display = 'flex';
@@ -525,6 +539,49 @@ async function bootAfterAuth(){
     document.getElementById('auth-gate').style.display = 'flex';
     await showAlert('Não foi possível conectar ao seu Google Drive. Verifique se a Client ID está configurada corretamente e tente novamente.');
   }
+}
+
+/* ============ IMPORTAÇÃO/ATUALIZAÇÃO DE CLIENTES (LOTE JUL/2026) ============ */
+async function importarClientesV2(){
+  const novos = CLIENTES_SEED_V2.filter(item => !item.matchNome).length;
+  const atualiza = CLIENTES_SEED_V2.filter(item => item.matchNome).length;
+  if(!(await showConfirm(`Isso vai atualizar ${atualiza} cliente(s) já cadastrado(s) e criar ${novos} cliente(s) novo(s), com dados completos para nota fiscal. Deseja continuar?`))) return;
+
+  const backup = state.clientes.slice();
+  for(const item of CLIENTES_SEED_V2){
+    const camposNovos = {
+      nome: item.nome, documento: item.documento, ie: item.ie, email: item.email,
+      telefone: item.telefone, endereco: item.endereco, cidade: item.cidade, uf: item.uf, cep: item.cep
+    };
+    if(item.matchNome){
+      const existente = state.clientes.find(c => c.nome.toLowerCase() === item.matchNome.toLowerCase());
+      if(existente){
+        Object.assign(existente, camposNovos);
+        if(item.observacoes){
+          existente.observacoes = existente.observacoes ? `${existente.observacoes} | ${item.observacoes}` : item.observacoes;
+        }
+        continue;
+      }
+      // se não achou o cliente pra atualizar, cria como novo mesmo
+    } else {
+      const jaExiste = state.clientes.some(c => c.nome.toLowerCase() === item.nome.toLowerCase());
+      if(jaExiste) continue;
+    }
+    state.clientes.push({
+      id: uid(), ...camposNovos, observacoes: item.observacoes || ''
+    });
+  }
+
+  state.clientesV2Importado = true;
+  const ok = await saveAll();
+  if(!ok){
+    state.clientes = backup;
+    state.clientesV2Importado = false;
+    await showAlert('Não foi possível salvar agora (erro no armazenamento). Tente novamente em instantes.');
+    return;
+  }
+  render();
+  await showAlert('Clientes atualizados! Revise especialmente os 3 cadastros da CiaSeeds (Filial LEM, matriz atual e o antigo de Laerte Baechtold) para confirmar qual deles é o que já tinha trabalhos lançados.');
 }
 
 /* ============ IMPORTAÇÃO DA PLANILHA ============ */
@@ -727,7 +784,17 @@ function renderPainel(){
 function renderClientes(){
   const q = state.buscaClientes.toLowerCase();
   const lista = state.clientes.filter(c => (c.nome+c.documento).toLowerCase().includes(q));
+  const clientesBanner = !state.clientesV2Importado ? `
+    <div class="card" style="margin-bottom:20px; display:flex; align-items:center; justify-content:space-between; gap:16px; border-color:var(--brass);">
+      <div>
+        <div class="serif" style="font-size:15px; margin-bottom:4px;">Lote de clientes prontos para cadastrar/atualizar</div>
+        <div class="field-hint" style="margin:0;">ABAPA, Cooperfarms, CiaSeeds (3 cadastros), Galvani, Uniagro e Fama Motors — com dados completos para nota fiscal.</div>
+      </div>
+      <button class="btn btn-primary" id="importar-clientes-v2" style="white-space:nowrap;">Importar agora</button>
+    </div>
+  ` : '';
   return `
+    ${clientesBanner}
     <div class="toolbar">
       <input class="search" id="busca-clientes" placeholder="Buscar por nome ou CPF/CNPJ…" value="${escapeHtml(state.buscaClientes)}">
       <button class="btn btn-primary" id="novo-cliente">+ Novo cliente</button>
@@ -1208,6 +1275,8 @@ function showConfirm(msg){
 function attachViewHandlers(){
   const importarBtn = document.getElementById('importar-seed');
   if(importarBtn) importarBtn.addEventListener('click', importarSeed);
+  const importarClientesBtn = document.getElementById('importar-clientes-v2');
+  if(importarClientesBtn) importarClientesBtn.addEventListener('click', importarClientesV2);
 
   // Clientes
   const buscaC = document.getElementById('busca-clientes');
