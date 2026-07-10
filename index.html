@@ -856,10 +856,17 @@ function renderPainel(){
 function renderClientes(){
   const q = state.buscaClientes.toLowerCase();
   const lista = state.clientes.filter(c => (c.nome+c.documento).toLowerCase().includes(q));
+  const temCandidatosConsolidar = state.clientes.some(c=>{
+    const n = c.nome.trim().toLowerCase();
+    return (n.startsWith('aniversário ') || n.startsWith('casamento ')) && n!=='aniversário' && n!=='casamento';
+  });
   return `
     <div class="toolbar">
       <input class="search" id="busca-clientes" placeholder="Buscar por nome ou CPF/CNPJ…" value="${escapeHtml(state.buscaClientes)}">
-      <button class="btn btn-primary" id="novo-cliente">+ Novo cliente</button>
+      <div style="display:flex; gap:8px;">
+        ${temCandidatosConsolidar ? `<button class="btn btn-ghost" id="consolidar-clientes">Unificar Aniversários/Casamentos</button>` : ''}
+        <button class="btn btn-primary" id="novo-cliente">+ Novo cliente</button>
+      </div>
     </div>
     <div class="card" style="padding:0;">
       <table>
@@ -909,6 +916,49 @@ function clienteFormHtml(c){
     </div>
     <div class="field"><label>Observações</label><textarea id="f-obs">${escapeHtml(c.observacoes)||''}</textarea></div>
   `;
+}
+
+/* ============ CONSOLIDAÇÃO DE ANIVERSÁRIOS/CASAMENTOS ============ */
+async function consolidarClientes(){
+  const candidatos = state.clientes.filter(c=>{
+    const n = c.nome.trim().toLowerCase();
+    return (n.startsWith('aniversário ') || n.startsWith('casamento ')) && n!=='aniversário' && n!=='casamento';
+  });
+  if(!candidatos.length){ await showAlert('Não encontrei clientes de Aniversário/Casamento para unificar.'); return; }
+
+  const nomesAfetados = candidatos.map(c=>c.nome).join(', ');
+  if(!(await showConfirm(`Isso vai unificar ${candidatos.length} cliente(s) — ${nomesAfetados} — em apenas dois clientes: "Aniversário" e "Casamento". O nome de cada pessoa/casal será movido para a descrição do trabalho correspondente. Deseja continuar?`))) return;
+
+  function obterOuCriarCliente(nomeAlvo){
+    let c = state.clientes.find(c=>c.nome.trim().toLowerCase()===nomeAlvo.toLowerCase());
+    if(!c){
+      c = { id:uid(), nome:nomeAlvo, documento:'', ie:'', email:'', telefone:'', endereco:'', cidade:'', uf:'', cep:'', observacoes:'' };
+      state.clientes.push(c);
+    }
+    return c;
+  }
+  const clienteAniversario = obterOuCriarCliente('Aniversário');
+  const clienteCasamento = obterOuCriarCliente('Casamento');
+
+  candidatos.forEach(antigo=>{
+    const n = antigo.nome.trim();
+    const ehAniversario = n.toLowerCase().startsWith('aniversário ');
+    const nomeEspecifico = n.slice(n.indexOf(' ')+1).trim();
+    const clienteNovo = ehAniversario ? clienteAniversario : clienteCasamento;
+
+    state.trabalhos.filter(t=>t.clienteId===antigo.id).forEach(t=>{
+      t.descricao = `${nomeEspecifico} — ${t.descricao}`;
+      t.clienteId = clienteNovo.id;
+    });
+  });
+
+  const idsAntigos = new Set(candidatos.map(c=>c.id));
+  state.clientes = state.clientes.filter(c=>!idsAntigos.has(c.id));
+
+  const ok = await saveAll();
+  if(!ok){ await showAlert('Não foi possível salvar a unificação agora. Tente novamente.'); return; }
+  render();
+  await showAlert('Clientes unificados com sucesso! Confira a aba Trabalhos — os nomes específicos agora aparecem na descrição de cada trabalho.');
 }
 
 function openClienteModal(existing){
@@ -1695,6 +1745,8 @@ function attachViewHandlers(){
   if(buscaC) buscaC.addEventListener('input', e=>{ state.buscaClientes = e.target.value; render(); document.getElementById('busca-clientes').focus(); document.getElementById('busca-clientes').selectionStart = document.getElementById('busca-clientes').value.length; });
   const novoCliente = document.getElementById('novo-cliente');
   if(novoCliente) novoCliente.addEventListener('click', ()=>openClienteModal());
+  const consolidarBtn = document.getElementById('consolidar-clientes');
+  if(consolidarBtn) consolidarBtn.addEventListener('click', consolidarClientes);
   document.querySelectorAll('[data-edit-cliente]').forEach(b=>{
     b.addEventListener('click', ()=>openClienteModal(state.clientes.find(c=>c.id===b.dataset.editCliente)));
   });
