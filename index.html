@@ -450,6 +450,7 @@ function initGis(){
     callback: async (resp)=>{
       if(resp.error){
         localStorage.removeItem('lc-authed');
+        localStorage.removeItem('lc-token');
         document.getElementById('auth-gate').style.display = 'flex';
         document.getElementById('app-loading').style.display = 'none';
         await showAlert('Falha ao conectar ao Google Drive: ' + resp.error);
@@ -457,11 +458,36 @@ function initGis(){
       }
       accessToken = resp.access_token;
       localStorage.setItem('lc-authed', 'true');
+      salvarTokenCache(resp.access_token, resp.expires_in);
       await bootAfterAuth();
     }
   });
   const btn = document.getElementById('btn-conectar-drive');
   if(btn) btn.disabled = false;
+
+  // Se ainda tivermos um token válido guardado (dentro da hora de validade), reconecta direto sem pedir login
+  const cache = lerTokenCache();
+  if(cache){
+    accessToken = cache.token;
+    document.getElementById('app-loading').style.display = 'flex';
+    document.getElementById('auth-gate').style.display = 'none';
+    bootAfterAuth();
+  }
+}
+
+function salvarTokenCache(token, expiresInSegundos){
+  const expiraEm = Date.now() + ((expiresInSegundos||3600) * 1000);
+  localStorage.setItem('lc-token', JSON.stringify({ token, expiraEm }));
+}
+function lerTokenCache(){
+  try{
+    const raw = localStorage.getItem('lc-token');
+    if(!raw) return null;
+    const dados = JSON.parse(raw);
+    // margem de 60s de segurança antes do vencimento real
+    if(!dados.token || !dados.expiraEm || Date.now() > dados.expiraEm - 60000) { localStorage.removeItem('lc-token'); return null; }
+    return dados;
+  }catch(e){ return null; }
 }
 
 function signIn(){
@@ -478,7 +504,12 @@ async function driveFetch(url, options={}){
   if(res.status === 401){
     await new Promise((resolve)=>{
       const prevCallback = tokenClient.callback;
-      tokenClient.callback = (resp)=>{ accessToken = resp.access_token; tokenClient.callback = prevCallback; resolve(); };
+      tokenClient.callback = (resp)=>{
+        accessToken = resp.access_token;
+        if(!resp.error) salvarTokenCache(resp.access_token, resp.expires_in);
+        tokenClient.callback = prevCallback;
+        resolve();
+      };
       tokenClient.requestAccessToken({ prompt:'' });
     });
     options.headers.Authorization = `Bearer ${accessToken}`;
@@ -570,6 +601,7 @@ async function bootAfterAuth(){
     if(!data.contas){ saveAll(); } // grava as contas-padrão na primeira vez
   }catch(e){
     console.error(e);
+    localStorage.removeItem('lc-token');
     document.getElementById('app-loading').style.display = 'none';
     document.getElementById('auth-gate').style.display = 'flex';
     await showAlert('Não foi possível conectar ao seu Google Drive. Verifique se a Client ID está configurada corretamente e tente novamente.');
