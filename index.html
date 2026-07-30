@@ -2015,16 +2015,21 @@ function attachViewHandlers(){
   if(limparFiltro1) limparFiltro1.addEventListener('click', ()=>{ state.filtroClienteId = null; render(); });
   document.querySelectorAll('[data-del-trabalho]').forEach(b=>{
     b.addEventListener('click', async ()=>{
-      const temRecebimentos = state.recebimentos.some(r=>r.trabalhoId===b.dataset.delTrabalho);
-      const msg = temRecebimentos
-        ? 'Este trabalho possui recebimentos registrados. Excluir mesmo assim? Os recebimentos ficarão órfãos.'
+      const trabalhoId = b.dataset.delTrabalho;
+      const recebimentosVinculados = state.recebimentos.filter(r=>r.trabalhoId===trabalhoId);
+      const totalVinculado = recebimentosVinculados.reduce((s,r)=>s+Number(r.valor),0);
+      const msg = recebimentosVinculados.length
+        ? `Este trabalho tem ${recebimentosVinculados.length} recebimento(s) registrado(s), totalizando ${formatBRL(totalVinculado)}. Excluir o trabalho vai excluir esses recebimentos também. Deseja continuar?`
         : 'Excluir este trabalho?';
       if(!(await showConfirm(msg))) return;
-      const backup = state.trabalhos.slice();
-      state.trabalhos = state.trabalhos.filter(t=>t.id!==b.dataset.delTrabalho);
+      const backupTrabalhos = state.trabalhos.slice();
+      const backupRecebimentos = state.recebimentos.slice();
+      state.trabalhos = state.trabalhos.filter(t=>t.id!==trabalhoId);
+      state.recebimentos = state.recebimentos.filter(r=>r.trabalhoId!==trabalhoId);
       const ok = await saveAll();
       if(!ok){
-        state.trabalhos = backup;
+        state.trabalhos = backupTrabalhos;
+        state.recebimentos = backupRecebimentos;
         await showAlert('Não foi possível excluir agora (erro no armazenamento). Tente novamente em instantes.');
         return;
       }
