@@ -212,6 +212,21 @@ th.sortable.active .arrow{ opacity:1; color: var(--brass); }
 .chart-bar .bar-value{ font-size:10px; color:var(--paper-dim); font-family:'IBM Plex Mono', monospace; }
 .chart-bar .bar-label{ font-size:10px; color:var(--paper-dim); text-transform:uppercase; margin-top:8px; }
 
+.tarefa-item{ display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--line); }
+.tarefa-item:last-child{ border-bottom:none; }
+.tarefa-item input[type="checkbox"]{ width:17px; height:17px; accent-color: var(--moss); cursor:pointer; flex-shrink:0; }
+.tarefa-item .tarefa-titulo{ flex:1; font-size:13.5px; }
+.tarefa-item.feita .tarefa-titulo{ text-decoration:line-through; color:var(--paper-dim); }
+.tarefa-item .tarefa-prazo{ font-size:11px; color:var(--paper-dim); font-family:'IBM Plex Mono', monospace; }
+.tarefa-add-row{ display:flex; gap:10px; padding:14px 16px; }
+.tarefa-add-row input[type="text"]{ flex:1; }
+.tarefa-add-row input[type="date"]{ width:150px; }
+
+.evento-item{ display:flex; align-items:baseline; gap:14px; padding:12px 16px; border-bottom:1px solid var(--line); }
+.evento-item:last-child{ border-bottom:none; }
+.evento-item .evento-data{ font-family:'IBM Plex Mono', monospace; font-size:11.5px; color:var(--brass); flex-shrink:0; width:120px; }
+.evento-item .evento-titulo{ flex:1; font-size:13.5px; }
+
 .row-actions{ display:flex; gap:6px; justify-content:flex-end; }
 .icon-btn{
   all:unset; cursor:pointer; color:var(--paper-dim); padding:5px 8px; border-radius:var(--radius); font-size:12px;
@@ -360,6 +375,9 @@ const state = {
   trabalhos: [],
   recebimentos: [],
   contas: [],
+  tarefas: [],
+  eventosCalendario: [],
+  calendarioCarregado: false,
   ready: false,
   relatorio: { mes: new Date().getMonth(), ano: new Date().getFullYear(), modo: 'mensal', filtroConta: null },
   buscaClientes: '',
@@ -384,6 +402,7 @@ const TABS = [
   { id:'trabalhos', label:'Trabalhos', n:'03' },
   { id:'recebimentos', label:'Recebimentos', n:'04' },
   { id:'relatorios', label:'Relatórios', n:'05' },
+  { id:'tarefas', label:'Tarefas', n:'06' },
 ];
 
 const FORMAS_PAGAMENTO = ['Pix','Transferência','Boleto','Dinheiro','Cartão','Outro'];
@@ -429,7 +448,7 @@ const SEED_DATA = [
 /* ============ CONFIGURAÇÃO DO GOOGLE DRIVE ============ */
 /* Substitua pela sua Client ID do Google Cloud Console (veja instruções enviadas junto com este arquivo) */
 const GOOGLE_CLIENT_ID = '684141921511-f8dhv57ka160cdl21jp6gvse1jk2sdbp.apps.googleusercontent.com';
-const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/calendar.events';
 const APP_FOLDER_NAME = 'Livro-Caixa';
 const DATA_FILE_NAME = 'livro-caixa-dados.json';
 
@@ -539,7 +558,7 @@ async function ensureDataFile(){
   if(json.files && json.files.length){ driveFileId = json.files[0].id; return; }
   const boundary = 'livrocaixa-boundary-' + uid();
   const metadata = { name: DATA_FILE_NAME, parents: [driveFolderId], mimeType: 'application/json' };
-  const inicial = { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), seedImportado:false };
+  const inicial = { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), tarefas:[], seedImportado:false };
   const body =
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
     `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(inicial)}\r\n` +
@@ -557,7 +576,7 @@ async function driveLoad(){
   const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`);
   const text = await res.text();
   try{ return JSON.parse(text); }
-  catch(e){ return { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), seedImportado:false }; }
+  catch(e){ return { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), tarefas:[], seedImportado:false }; }
 }
 
 async function driveSave(data){
@@ -574,7 +593,7 @@ async function driveSave(data){
 async function saveAll(){
   const ok = await driveSave({
     clientes: state.clientes, trabalhos: state.trabalhos,
-    recebimentos: state.recebimentos, contas: state.contas, seedImportado: state.seedImportado
+    recebimentos: state.recebimentos, contas: state.contas, tarefas: state.tarefas, seedImportado: state.seedImportado
   });
   if(!ok){
     await showAlert('Não foi possível salvar no Google Drive agora. Verifique sua conexão com a internet e tente novamente — se o problema continuar, talvez seja preciso reconectar (recarregue a página e clique em Conectar ao Google Drive de novo).');
@@ -593,6 +612,7 @@ async function bootAfterAuth(){
     state.trabalhos = data.trabalhos || [];
     state.recebimentos = data.recebimentos || [];
     state.contas = (data.contas && data.contas.length) ? data.contas : CONTAS_PADRAO.slice();
+    state.tarefas = data.tarefas || [];
     state.seedImportado = data.seedImportado || false;
     state.ready = true;
     document.getElementById('app-loading').style.display = 'none';
@@ -764,7 +784,7 @@ function renderNav(){
 
 function render(){
   renderNav();
-  const titleMap = {painel:'Painel', clientes:'Clientes', trabalhos:'Trabalhos', recebimentos:'Recebimentos', relatorios:'Relatórios mensais'};
+  const titleMap = {painel:'Painel', clientes:'Clientes', trabalhos:'Trabalhos', recebimentos:'Recebimentos', relatorios:'Relatórios mensais', tarefas:'Tarefas & Agenda'};
   document.getElementById('view-title').textContent = titleMap[state.view];
   document.getElementById('today').textContent = new Date().toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
 
@@ -776,6 +796,10 @@ function render(){
   if(state.view === 'trabalhos') view.innerHTML = renderTrabalhos();
   if(state.view === 'recebimentos') view.innerHTML = renderRecebimentos();
   if(state.view === 'relatorios') view.innerHTML = renderRelatorios();
+  if(state.view === 'tarefas'){
+    view.innerHTML = renderTarefas();
+    if(!state.calendarioCarregado){ carregarEventosCalendario(); }
+  }
 
   attachViewHandlers();
 }
@@ -1695,6 +1719,169 @@ function baixarBackup(){
   URL.revokeObjectURL(url);
 }
 
+/* ============ TAREFAS & AGENDA ============ */
+function renderTarefas(){
+  const pendentes = state.tarefas.filter(t=>!t.feito).sort((a,b)=>(a.prazo||'9999').localeCompare(b.prazo||'9999'));
+  const feitas = state.tarefas.filter(t=>t.feito).sort((a,b)=>(b.concluidoEm||'').localeCompare(a.concluidoEm||''));
+
+  function itemTarefa(t){
+    const hoje = todayISO();
+    const atrasada = !t.feito && t.prazo && t.prazo < hoje;
+    return `
+      <div class="tarefa-item ${t.feito?'feita':''}">
+        <input type="checkbox" data-toggle-tarefa="${t.id}" ${t.feito?'checked':''}>
+        <div class="tarefa-titulo">${escapeHtml(t.titulo)}</div>
+        ${t.prazo ? `<div class="tarefa-prazo" style="${atrasada?'color:var(--rust);':''}">${formatDate(t.prazo)}</div>` : ''}
+        <button class="icon-btn danger" data-del-tarefa="${t.id}">Excluir</button>
+      </div>
+    `;
+  }
+
+  const listaEventos = state.eventosCalendario;
+
+  return `
+    <div class="grid grid-2" style="align-items:start;">
+      <div>
+        <div class="section-title"><span>Tarefas do dia a dia</span><span class="rule"></span><span class="badge-count">${pendentes.length} pendente(s)</span></div>
+        <div class="card" style="padding:0; margin-bottom:24px;">
+          <div class="tarefa-add-row">
+            <input type="text" id="nova-tarefa-titulo" placeholder="O que precisa ser resolvido?">
+            <input type="date" id="nova-tarefa-prazo">
+            <button class="btn btn-primary" id="add-tarefa">+ Adicionar</button>
+          </div>
+          ${pendentes.length ? pendentes.map(itemTarefa).join('') : `<div class="empty-state" style="padding:24px;">Nenhuma tarefa pendente. 🎉</div>`}
+        </div>
+        ${feitas.length ? `
+          <div class="section-title"><span>Concluídas</span><span class="rule"></span><span class="badge-count">${feitas.length}</span></div>
+          <div class="card" style="padding:0;">
+            ${feitas.map(itemTarefa).join('')}
+          </div>
+        ` : ''}
+      </div>
+
+      <div>
+        <div class="section-title">
+          <span>Agenda (Google Calendar)</span><span class="rule"></span>
+          <button class="btn btn-ghost" id="recarregar-agenda" style="padding:6px 12px; font-size:11.5px;">Atualizar</button>
+        </div>
+        <div class="card" style="margin-bottom:24px;">
+          <div class="field"><label>Título do evento</label><input type="text" id="novo-evento-titulo" placeholder="Ex: Reunião com cliente"></div>
+          <div class="field-row">
+            <div class="field"><label>Data</label><input type="date" id="novo-evento-data" value="${todayISO()}"></div>
+            <div class="field"><label>Hora (opcional — dia inteiro se vazio)</label><input type="time" id="novo-evento-hora"></div>
+          </div>
+          <div class="field"><label>Descrição (opcional)</label><textarea id="novo-evento-desc"></textarea></div>
+          <button class="btn btn-primary" id="add-evento" style="width:100%; justify-content:center;">Adicionar ao Google Calendar</button>
+        </div>
+        <div class="card" style="padding:0;">
+          ${listaEventos.length ? listaEventos.map(ev=>{
+            const inicio = ev.start.dateTime || ev.start.date;
+            const dataObj = new Date(inicio);
+            const label = ev.start.dateTime
+              ? dataObj.toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})
+              : dataObj.toLocaleDateString('pt-BR', {timeZone:'UTC'});
+            return `
+              <div class="evento-item">
+                <div class="evento-data">${label}</div>
+                <div class="evento-titulo">${escapeHtml(ev.summary||'(sem título)')}</div>
+              </div>
+            `;
+          }).join('') : `<div class="empty-state" style="padding:24px;">${state.calendarioCarregado ? 'Nenhum evento futuro encontrado.' : 'Clique em "Atualizar" para carregar sua agenda.'}</div>`}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function adicionarTarefa(){
+  const inputTitulo = document.getElementById('nova-tarefa-titulo');
+  const inputPrazo = document.getElementById('nova-tarefa-prazo');
+  const titulo = inputTitulo.value.trim();
+  if(!titulo) return;
+  const backup = state.tarefas.slice();
+  state.tarefas.push({ id: uid(), titulo, prazo: inputPrazo.value || '', feito:false, criadoEm: todayISO() });
+  const ok = await saveAll();
+  if(!ok){ state.tarefas = backup; await showAlert('Não foi possível salvar a tarefa agora. Tente novamente.'); return; }
+  render();
+}
+
+async function alternarTarefa(id){
+  const backup = state.tarefas.slice();
+  const t = state.tarefas.find(t=>t.id===id);
+  if(!t) return;
+  t.feito = !t.feito;
+  t.concluidoEm = t.feito ? todayISO() : '';
+  const ok = await saveAll();
+  if(!ok){ state.tarefas = backup; await showAlert('Não foi possível salvar agora. Tente novamente.'); return; }
+  render();
+}
+
+async function excluirTarefa(id){
+  if(!(await showConfirm('Excluir esta tarefa?'))) return;
+  const backup = state.tarefas.slice();
+  state.tarefas = state.tarefas.filter(t=>t.id!==id);
+  const ok = await saveAll();
+  if(!ok){ state.tarefas = backup; await showAlert('Não foi possível excluir agora. Tente novamente.'); return; }
+  render();
+}
+
+async function carregarEventosCalendario(){
+  try{
+    const agora = new Date().toISOString();
+    const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(agora)}&maxResults=15&singleEvents=true&orderBy=startTime`;
+    const res = await driveFetch(url);
+    const json = await res.json();
+    state.eventosCalendario = json.items || [];
+  }catch(e){
+    console.error('Falha ao carregar agenda', e);
+    state.eventosCalendario = [];
+    await showAlert('Não foi possível carregar sua agenda do Google Calendar agora.');
+  }
+  state.calendarioCarregado = true;
+  render();
+}
+
+async function adicionarEventoCalendario(){
+  const titulo = document.getElementById('novo-evento-titulo').value.trim();
+  const data = document.getElementById('novo-evento-data').value;
+  const hora = document.getElementById('novo-evento-hora').value;
+  const descricao = document.getElementById('novo-evento-desc').value.trim();
+  if(!titulo || !data){ await showAlert('Preencha ao menos o título e a data do evento.'); return; }
+
+  let body;
+  if(hora){
+    const fusoHorario = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const inicio = new Date(`${data}T${hora}:00`);
+    const fim = new Date(inicio.getTime() + 60*60000); // 1 hora de duração padrão
+    const pad = n=>String(n).padStart(2,'0');
+    const fimStr = `${fim.getFullYear()}-${pad(fim.getMonth()+1)}-${pad(fim.getDate())}T${pad(fim.getHours())}:${pad(fim.getMinutes())}:00`;
+    body = {
+      summary: titulo, description: descricao,
+      start: { dateTime: `${data}T${hora}:00`, timeZone: fusoHorario },
+      end: { dateTime: fimStr, timeZone: fusoHorario }
+    };
+  } else {
+    body = { summary: titulo, description: descricao, start: { date: data }, end: { date: data } };
+  }
+
+  try{
+    const res = await driveFetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    if(!res.ok){ throw new Error('Falha na criação do evento'); }
+    document.getElementById('novo-evento-titulo').value = '';
+    document.getElementById('novo-evento-hora').value = '';
+    document.getElementById('novo-evento-desc').value = '';
+    await carregarEventosCalendario();
+    await showAlert('Evento adicionado ao Google Calendar!');
+  }catch(e){
+    console.error(e);
+    await showAlert('Não foi possível criar o evento no Google Calendar agora. Tente novamente.');
+  }
+}
+
 function exportarCSV(){
   const { mes, ano } = state.relatorio;
   const recebimentosMes = state.recebimentos.filter(r=>{
@@ -1891,6 +2078,24 @@ function attachViewHandlers(){
   if(selAnoAnual) selAnoAnual.addEventListener('change', e=>{ state.relatorio.ano = Number(e.target.value); render(); });
   const filtroContaRelatorio = document.getElementById('filtro-conta-relatorio');
   if(filtroContaRelatorio) filtroContaRelatorio.addEventListener('change', e=>{ state.relatorio.filtroConta = e.target.value || null; render(); });
+
+  // Tarefas
+  const addTarefaBtn = document.getElementById('add-tarefa');
+  if(addTarefaBtn) addTarefaBtn.addEventListener('click', adicionarTarefa);
+  const novaTarefaInput = document.getElementById('nova-tarefa-titulo');
+  if(novaTarefaInput) novaTarefaInput.addEventListener('keydown', e=>{ if(e.key==='Enter') adicionarTarefa(); });
+  document.querySelectorAll('[data-toggle-tarefa]').forEach(el=>{
+    el.addEventListener('change', ()=>alternarTarefa(el.dataset.toggleTarefa));
+  });
+  document.querySelectorAll('[data-del-tarefa]').forEach(el=>{
+    el.addEventListener('click', ()=>excluirTarefa(el.dataset.delTarefa));
+  });
+
+  // Agenda / Google Calendar
+  const recarregarAgendaBtn = document.getElementById('recarregar-agenda');
+  if(recarregarAgendaBtn) recarregarAgendaBtn.addEventListener('click', carregarEventosCalendario);
+  const addEventoBtn = document.getElementById('add-evento');
+  if(addEventoBtn) addEventoBtn.addEventListener('click', adicionarEventoCalendario);
 }
 
 /* A conexão com o Google é iniciada automaticamente quando o script do Google carrega (veja onload= no <head>). */
