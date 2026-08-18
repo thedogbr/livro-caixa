@@ -736,6 +736,15 @@ function normalizarDataCSV(str){
   if(/^\d{2}\/\d{2}\/\d{4}$/.test(str)){ const [d,m,a] = str.split('/'); return `${a}-${m}-${d}`; }
   return '';
 }
+function normalizarValorCSV(str){
+  str = (str||'').trim();
+  const negativo = str.trim().startsWith('-');
+  let limpo = str.replace(/^-/, '').trim();
+  limpo = limpo.replace(/\./g, '').replace(',', '.'); // remove separador de milhar, troca decimal
+  const valor = parseFloat(limpo);
+  if(isNaN(valor)) return NaN;
+  return negativo ? -valor : valor;
+}
 function parseCSVFatura(texto){
   texto = texto.replace(/^\uFEFF/, '');
   const linhas = texto.split(/\r\n|\n/).filter(l=>l.trim().length>0);
@@ -750,7 +759,7 @@ function parseCSVFatura(texto){
     return {
       data: normalizarDataCSV(campos[idxData]),
       descricao: campos[idxTitulo] || '',
-      valor: parseFloat((campos[idxValor]||'').replace(',','.'))
+      valor: normalizarValorCSV(campos[idxValor])
     };
   }).filter(r=>r.data && r.descricao && !isNaN(r.valor));
 }
@@ -775,7 +784,8 @@ function importarCSVManual(){
 }
 
 function abrirRevisaoImportacaoCSV(linhas, nomeArquivoOrigem){
-  let itens = linhas.map(l=>({ ...l, incluir:true, tipo:'variavel' }));
+  let itens = linhas.map(l=>({ ...l, incluir: l.valor > 0, tipo:'variavel' }));
+  const temCreditos = itens.some(l=>l.valor < 0);
 
   function desenhar(){
     openModal(`
@@ -783,6 +793,7 @@ function abrirRevisaoImportacaoCSV(linhas, nomeArquivoOrigem){
       <div class="field"><label>Cartão desta fatura *</label>
         <select id="f-cartao-import">${state.cartoes.map(c=>`<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('')}</select>
       </div>
+      ${temCreditos ? `<div class="field-hint warn" style="margin-bottom:10px;">Itens em vermelho são pagamentos de fatura ou estornos (valor negativo) — vêm desmarcados por padrão, pois normalmente não são despesas.</div>` : ''}
       <div style="max-height:320px; overflow-y:auto; border:1px solid var(--line); border-radius:var(--radius); margin:14px 0;">
         <table>
           <thead><tr><th></th><th>Data</th><th>Descrição</th><th>Valor</th><th>Fixo?</th></tr></thead>
@@ -791,8 +802,8 @@ function abrirRevisaoImportacaoCSV(linhas, nomeArquivoOrigem){
             <tr>
               <td><input type="checkbox" data-inc="${i}" ${l.incluir?'checked':''}></td>
               <td class="mono">${formatDate(l.data)}</td>
-              <td>${escapeHtml(l.descricao)}</td>
-              <td class="num">${formatBRL(l.valor)}</td>
+              <td>${escapeHtml(l.descricao)}${l.valor<0?' <span class="tag aberto">pagamento/estorno</span>':''}</td>
+              <td class="num" style="${l.valor<0?'color:var(--rust);':''}">${formatBRL(l.valor)}</td>
               <td><input type="checkbox" data-fixo="${i}" ${l.tipo==='fixo'?'checked':''}></td>
             </tr>
           `).join('')}
