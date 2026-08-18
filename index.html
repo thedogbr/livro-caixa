@@ -572,6 +572,77 @@ async function ensureDataFile(){
   driveFileId = created.id;
 }
 
+/* ============ BACKUPS NO GOOGLE DRIVE ============ */
+let backupsFolderId = null;
+
+async function ensureBackupsFolder(){
+  if(backupsFolderId) return backupsFolderId;
+  const q = encodeURIComponent(`name='Backups' and mimeType='application/vnd.google-apps.folder' and '${driveFolderId}' in parents and trashed=false`);
+  const res = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
+  const json = await res.json();
+  if(json.files && json.files.length){ backupsFolderId = json.files[0].id; return backupsFolderId; }
+  const createRes = await driveFetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name: 'Backups', mimeType: 'application/vnd.google-apps.folder', parents: [driveFolderId] })
+  });
+  const created = await createRes.json();
+  backupsFolderId = created.id;
+  return backupsFolderId;
+}
+
+async function criarArquivoBackupNoDrive(nomeArquivo){
+  const pastaId = await ensureBackupsFolder();
+  const dados = {
+    exportadoEm: new Date().toISOString(),
+    clientes: state.clientes, trabalhos: state.trabalhos,
+    recebimentos: state.recebimentos, contas: state.contas, tarefas: state.tarefas
+  };
+  const boundary = 'livrocaixa-backup-' + uid();
+  const metadata = { name: nomeArquivo, parents: [pastaId], mimeType: 'application/json' };
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(dados, null, 2)}\r\n` +
+    `--${boundary}--`;
+  const res = await driveFetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+    method: 'POST',
+    headers: {'Content-Type': `multipart/related; boundary=${boundary}`},
+    body
+  });
+  return res.ok;
+}
+
+async function backupManualDrive(){
+  if(!(await showConfirm('Isso vai criar um novo arquivo de backup na pasta "Livro-Caixa/Backups" do seu Google Drive, com uma cópia de todos os dados atuais. Continuar?'))) return;
+  const agora = new Date();
+  const pad = n=>String(n).padStart(2,'0');
+  const nomeArquivo = `backup-${agora.getFullYear()}-${pad(agora.getMonth()+1)}-${pad(agora.getDate())}-${pad(agora.getHours())}h${pad(agora.getMinutes())}.json`;
+  try{
+    const ok = await criarArquivoBackupNoDrive(nomeArquivo);
+    if(!ok) throw new Error('Falha ao criar arquivo');
+    await showAlert(`Backup criado com sucesso: ${nomeArquivo} (dentro de Livro-Caixa/Backups no seu Drive).`);
+  }catch(e){
+    console.error(e);
+    await showAlert('Não foi possível criar o backup no Drive agora. Tente novamente.');
+  }
+}
+
+async function verificarBackupMensalAutomatico(){
+  try{
+    const pastaId = await ensureBackupsFolder();
+    const agora = new Date();
+    const pad = n=>String(n).padStart(2,'0');
+    const prefixoMes = `backup-mensal-${agora.getFullYear()}-${pad(agora.getMonth()+1)}`;
+    const q = encodeURIComponent(`name contains '${prefixoMes}' and '${pastaId}' in parents and trashed=false`);
+    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
+    const json = await res.json();
+    if(json.files && json.files.length) return; // já existe backup deste mês
+    await criarArquivoBackupNoDrive(`${prefixoMes}.json`);
+  }catch(e){
+    console.error('Falha ao verificar/criar backup mensal automático', e);
+  }
+}
+
 async function driveLoad(){
   const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`);
   const text = await res.text();
@@ -619,6 +690,7 @@ async function bootAfterAuth(){
     document.getElementById('app').style.display = 'flex';
     render();
     if(!data.contas){ saveAll(); } // grava as contas-padrão na primeira vez
+    verificarBackupMensalAutomatico(); // roda em segundo plano, sem bloquear a interface
   }catch(e){
     console.error(e);
     localStorage.removeItem('lc-token');
@@ -1533,8 +1605,9 @@ function renderRelatorios(){
       </table>
     </div>
 
-    <div style="display:flex; justify-content:flex-end; margin-top:24px;">
+    <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:24px;">
       <button class="btn btn-ghost" id="baixar-backup">Baixar backup completo (JSON)</button>
+      <button class="btn btn-primary" id="backup-drive-agora">Criar backup no Drive agora</button>
     </div>
   `;
 }
@@ -1958,6 +2031,8 @@ function attachViewHandlers(){
   if(importarBtn) importarBtn.addEventListener('click', importarSeed);
   const backupBtn = document.getElementById('baixar-backup');
   if(backupBtn) backupBtn.addEventListener('click', baixarBackup);
+  const backupDriveBtn = document.getElementById('backup-drive-agora');
+  if(backupDriveBtn) backupDriveBtn.addEventListener('click', backupManualDrive);
 
   // Clientes
   const buscaC = document.getElementById('busca-clientes');
