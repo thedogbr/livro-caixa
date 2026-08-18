@@ -2329,12 +2329,18 @@ function renderDespesas(){
 function openDespesaModal(existing){
   const isEdit = !!existing;
   const opcoesCartoes = state.cartoes.map(c=>`<option value="${c.id}" ${isEdit && existing.cartaoId===c.id?'selected':''}>${escapeHtml(c.nome)}</option>`).join('');
+  const valorAbsoluto = isEdit ? Math.abs(existing.valor) : '';
+  const ehEstorno = isEdit && existing.valor < 0;
   openModal(`
     <h2>${isEdit ? 'Editar despesa' : 'Nova despesa'}</h2>
     <div class="field"><label>Descrição *</label><input id="f-desc-despesa" value="${escapeHtml(existing&&existing.descricao)||''}" placeholder="Ex: Assinatura Adobe"></div>
     <div class="field-row">
-      <div class="field"><label>Valor (R$) *</label><input id="f-valor-despesa" type="number" step="0.01" min="0" value="${isEdit?existing.valor:''}"></div>
+      <div class="field"><label>Valor (R$) *</label><input id="f-valor-despesa" type="number" step="0.01" min="0.01" value="${valorAbsoluto}"></div>
       <div class="field"><label>Data *</label><input id="f-data-despesa" type="date" value="${isEdit?existing.data:todayISO()}"></div>
+    </div>
+    <div class="field" style="display:flex; align-items:center; gap:8px;">
+      <input type="checkbox" id="f-estorno-despesa" ${ehEstorno?'checked':''} style="width:auto;">
+      <label style="margin:0; text-transform:none; font-size:12.5px; color:var(--paper-dim);" for="f-estorno-despesa">É um estorno/crédito (será subtraído do total, em vez de somado)</label>
     </div>
     <div class="field-row">
       <div class="field"><label>Tipo *</label>
@@ -2356,12 +2362,14 @@ function openDespesaModal(existing){
   document.getElementById('cancelar').onclick = closeModal;
   document.getElementById('salvar').onclick = async ()=>{
     const descricao = document.getElementById('f-desc-despesa').value.trim();
-    const valor = parseFloat(document.getElementById('f-valor-despesa').value);
+    const valorDigitado = parseFloat(document.getElementById('f-valor-despesa').value);
+    const ehEstornoMarcado = document.getElementById('f-estorno-despesa').checked;
+    const valor = ehEstornoMarcado ? -Math.abs(valorDigitado) : Math.abs(valorDigitado);
     const data = document.getElementById('f-data-despesa').value;
     const tipo = document.getElementById('f-tipo-despesa').value;
     const cartaoId = document.getElementById('f-cartao-despesa').value;
     const categoria = document.getElementById('f-categoria-despesa').value.trim();
-    if(!descricao || isNaN(valor) || valor<=0 || !data){
+    if(!descricao || isNaN(valorDigitado) || valorDigitado<=0 || !data){
       await showAlert('Preencha descrição, valor e data.'); return;
     }
     const backup = state.despesas.slice();
