@@ -688,7 +688,7 @@ async function verificarFaturasNovas(){
     const json = await res.json();
     const arquivos = json.files || [];
     state.faturasPendentes = arquivos.filter(f=>!state.arquivosImportadosCSV.includes(f.name));
-    if(state.faturasPendentes.length && state.view === 'painel') render();
+    if(state.faturasPendentes.length) render();
   }catch(e){
     console.error('Falha ao verificar novas faturas', e);
   }
@@ -2267,6 +2267,7 @@ function renderDespesas(){
         </select>
       </div>
       <div style="display:flex; gap:8px;">
+        <button class="btn btn-ghost" id="verificar-faturas">Verificar faturas</button>
         <button class="btn btn-ghost" id="gerenciar-cartoes">Gerenciar cartões</button>
         <button class="btn btn-ghost" id="importar-csv">Importar CSV</button>
         <button class="btn btn-primary" id="nova-despesa">+ Nova despesa</button>
@@ -2944,6 +2945,11 @@ function attachViewHandlers(){
   if(filtroTipoDesp) filtroTipoDesp.addEventListener('change', e=>{ state.despesasView.filtroTipo = e.target.value; render(); });
   const filtroCartaoDesp = document.getElementById('filtro-cartao-desp');
   if(filtroCartaoDesp) filtroCartaoDesp.addEventListener('change', e=>{ state.despesasView.filtroCartao = e.target.value; render(); });
+  const verificarFaturasBtn = document.getElementById('verificar-faturas');
+  if(verificarFaturasBtn) verificarFaturasBtn.addEventListener('click', async ()=>{
+    await verificarFaturasNovas();
+    if(!state.faturasPendentes.length) await showAlert('Nenhuma fatura nova encontrada na pasta "Livro-Caixa/Faturas Cartão" do seu Drive.');
+  });
   const gerenciarCartoesBtn = document.getElementById('gerenciar-cartoes');
   if(gerenciarCartoesBtn) gerenciarCartoesBtn.addEventListener('click', openCartoesModal);
   const importarCSVBtn = document.getElementById('importar-csv');
