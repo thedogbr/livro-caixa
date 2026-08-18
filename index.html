@@ -383,7 +383,7 @@ const state = {
   contas: [],
   tarefas: [],
   retiradas: [],
-  configProLabore: { percentual: 30 },
+  configProLabore: { percentualPadrao: 30, percentuais: {}, mesInicio: '' },
   eventosCalendario: [],
   calendarioCarregado: false,
   ready: false,
@@ -568,7 +568,7 @@ async function ensureDataFile(){
   if(json.files && json.files.length){ driveFileId = json.files[0].id; return; }
   const boundary = 'livrocaixa-boundary-' + uid();
   const metadata = { name: DATA_FILE_NAME, parents: [driveFolderId], mimeType: 'application/json' };
-  const inicial = { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), tarefas:[], retiradas:[], configProLabore:{percentual:30}, seedImportado:false };
+  const inicial = { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), tarefas:[], retiradas:[], configProLabore:{percentualPadrao:30,percentuais:{},mesInicio:''}, seedImportado:false };
   const body =
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
     `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(inicial)}\r\n` +
@@ -658,7 +658,7 @@ async function driveLoad(){
   const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`);
   const text = await res.text();
   try{ return JSON.parse(text); }
-  catch(e){ return { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), tarefas:[], retiradas:[], configProLabore:{percentual:30}, seedImportado:false }; }
+  catch(e){ return { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), tarefas:[], retiradas:[], configProLabore:{percentualPadrao:30,percentuais:{},mesInicio:''}, seedImportado:false }; }
 }
 
 async function driveSave(data){
@@ -697,7 +697,7 @@ async function bootAfterAuth(){
     state.contas = (data.contas && data.contas.length) ? data.contas : CONTAS_PADRAO.slice();
     state.tarefas = data.tarefas || [];
     state.retiradas = data.retiradas || [];
-    state.configProLabore = data.configProLabore || { percentual: 30 };
+    state.configProLabore = migrarConfigProLabore(data.configProLabore);
     state.seedImportado = data.seedImportado || false;
     state.ready = true;
     document.getElementById('app-loading').style.display = 'none';
@@ -769,6 +769,21 @@ function formatDate(iso){
   return `${d}/${m}/${y}`;
 }
 function todayISO(){ return new Date().toISOString().slice(0,10); }
+function mesAnoKey(mes, ano){ return `${ano}-${String(mes+1).padStart(2,'0')}`; }
+function migrarConfigProLabore(cfg){
+  const mesAtual = mesAnoKey(new Date().getMonth(), new Date().getFullYear());
+  if(!cfg){
+    return { percentualPadrao: 30, percentuais: {}, mesInicio: mesAtual };
+  }
+  if(cfg.percentual !== undefined && cfg.percentuais === undefined){
+    // esquema antigo (percentual único global) -> migra para o novo formato
+    return { percentualPadrao: cfg.percentual, percentuais: {}, mesInicio: mesAtual };
+  }
+  if(!cfg.mesInicio){ cfg.mesInicio = mesAtual; }
+  if(!cfg.percentuais){ cfg.percentuais = {}; }
+  if(cfg.percentualPadrao === undefined){ cfg.percentualPadrao = 30; }
+  return cfg;
+}
 function escapeHtml(s){
   return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -1729,15 +1744,29 @@ function retiradoDoMes(mes, ano){
   }).reduce((s,r)=>s+Number(r.valor),0);
 }
 
+function percentualDoMes(mes, ano){
+  const key = mesAnoKey(mes, ano);
+  const p = state.configProLabore.percentuais[key];
+  return p !== undefined ? p : state.configProLabore.percentualPadrao;
+}
+function mesValidoParaProLabore(mes, ano){
+  const key = mesAnoKey(mes, ano);
+  return !state.configProLabore.mesInicio || key >= state.configProLabore.mesInicio;
+}
+
 function renderProLabore(){
   const { mes, ano } = state.prolabore;
-  const percentual = state.configProLabore.percentual;
+  const chaveMes = mesAnoKey(mes, ano);
+  const percentual = percentualDoMes(mes, ano);
+  const temOverride = state.configProLabore.percentuais[chaveMes] !== undefined;
+  const valido = mesValidoParaProLabore(mes, ano);
+
   const recebidoMes = recebidoDoMes(mes, ano);
-  const sugerido = recebidoMes * (percentual/100);
+  const sugerido = valido ? recebidoMes * (percentual/100) : 0;
   const retiradoMes = retiradoDoMes(mes, ano);
   const disponivel = sugerido - retiradoMes;
   const pctUsado = sugerido > 0 ? Math.min(100, (retiradoMes/sugerido)*100) : (retiradoMes>0 ? 100 : 0);
-  const excedeu = retiradoMes > sugerido + 0.004;
+  const excedeu = valido && retiradoMes > sugerido + 0.004;
 
   const anoAtual = new Date().getFullYear();
   const opcoesAno = [anoAtual-1, anoAtual, anoAtual+1].map(a=>`<option value="${a}" ${a===ano?'selected':''}>${a}</option>`).join('');
@@ -1748,34 +1777,52 @@ function renderProLabore(){
     return d.getMonth()===mes && d.getFullYear()===ano;
   }).sort((a,b)=>b.data.localeCompare(a.data));
 
-  // Histórico anual: retirado x sugerido por mês (últimos 12 meses com dado)
+  // Histórico: retirado x sugerido por mês, só a partir do mês de início
   const chaves = {};
   state.recebimentos.forEach(r=>{ chaves[r.data.slice(0,7)] = true; });
   state.retiradas.forEach(r=>{ chaves[r.data.slice(0,7)] = true; });
-  const historico = Object.keys(chaves).sort().map(key=>{
-    const [a,m] = key.split('-').map(Number);
-    return { ano:a, mes:m-1, recebido: recebidoDoMes(m-1,a), retirado: retiradoDoMes(m-1,a) };
-  });
+  const historico = Object.keys(chaves)
+    .filter(key => !state.configProLabore.mesInicio || key >= state.configProLabore.mesInicio)
+    .sort()
+    .map(key=>{
+      const [a,m] = key.split('-').map(Number);
+      return { ano:a, mes:m-1, recebido: recebidoDoMes(m-1,a), retirado: retiradoDoMes(m-1,a), percentual: percentualDoMes(m-1,a) };
+    });
 
   return `
     <div class="toolbar">
-      <div style="display:flex; gap:10px; align-items:center;">
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
         <select class="month-select" id="sel-mes-pl">${opcoesMes}</select>
         <select class="month-select" id="sel-ano-pl">${opcoesAno}</select>
         <div class="pl-config">
-          Pró-labore sugerido:
+          % de ${MESES[mes]}:
           <input type="number" id="pl-percentual" min="0" max="100" step="1" value="${percentual}">%
           <button class="btn btn-ghost" id="salvar-percentual" style="padding:5px 10px; font-size:11.5px;">Salvar</button>
+          ${temOverride ? `<span style="color:var(--brass); font-size:11px;">personalizado</span>` : ''}
         </div>
       </div>
       <button class="btn btn-primary" id="nova-retirada">+ Registrar retirada</button>
     </div>
 
+    <div class="field-hint" style="margin-bottom:18px;">
+      Percentual padrão para meses sem personalização:
+      <input type="number" id="pl-percentual-padrao" min="0" max="100" step="1" value="${state.configProLabore.percentualPadrao}" style="width:56px; background:var(--ink-3); border:1px solid var(--line); border-radius:var(--radius); padding:3px 6px; color:var(--paper); text-align:center; margin:0 4px;">%
+      <button class="btn btn-ghost" id="salvar-percentual-padrao" style="padding:4px 10px; font-size:11px;">Salvar padrão</button>
+      &nbsp;·&nbsp; Controle de pró-labore válido a partir de <strong>${MESES[Number(state.configProLabore.mesInicio.split('-')[1])-1]}/${state.configProLabore.mesInicio.split('-')[0]}</strong>
+      <button class="btn btn-ghost" id="alterar-mes-inicio" style="padding:4px 10px; font-size:11px; margin-left:6px;">Alterar</button>
+    </div>
+
+    ${!valido ? `
+      <div class="filter-banner" style="border-color:var(--rust); background:var(--rust-soft);">
+        <span>Este mês é anterior ao início do controle de pró-labore — os valores recebidos aqui não são contabilizados na sugestão.</span>
+      </div>
+    ` : ''}
+
     <div class="ticket" style="margin-bottom:28px;">
       <div class="ticket-head">
         <div>
           <div class="titulo">Pró-labore — ${MESES[mes]} de ${ano}</div>
-          <div class="periodo">${percentual}% do recebido no mês</div>
+          <div class="periodo">${valido ? `${percentual}% do recebido no mês` : 'fora do período de controle'}</div>
         </div>
       </div>
       <div class="ticket-nums">
@@ -1813,15 +1860,14 @@ function renderProLabore(){
     <div class="section-title"><span>Histórico mensal — retirado x sugerido</span><span class="rule"></span></div>
     <div class="card" style="padding:0;">
       <table>
-        <thead><tr><th>Mês</th><th>Recebido</th><th>Sugerido (${percentual}%)</th><th>Retirado</th><th>Situação</th></tr></thead>
+        <thead><tr><th>Mês</th><th>%</th><th>Recebido</th><th>Sugerido</th><th>Retirado</th><th>Situação</th></tr></thead>
         <tbody>
         ${historico.length ? historico.slice().reverse().map(h=>{
-          const sug = h.recebido * (percentual/100);
-          const status = h.retirado > sug + 0.004 ? 'excedeu' : (h.retirado >= sug - 0.004 ? 'completo' : 'parcial');
-          const label = status==='excedeu' ? 'excedeu' : status==='completo' ? 'completo' : 'parcial';
+          const sug = h.recebido * (h.percentual/100);
+          const status = h.retirado > sug + 0.004 ? 'excedeu' : (h.retirado >= sug - 0.004 && sug > 0 ? 'completo' : 'parcial');
           const cls = status==='excedeu' ? 'aberto' : status==='completo' ? 'quitado' : 'parcial';
-          return `<tr><td>${MESES[h.mes]}/${String(h.ano).slice(2)}</td><td class="num">${formatBRL(h.recebido)}</td><td class="num">${formatBRL(sug)}</td><td class="num">${formatBRL(h.retirado)}</td><td><span class="tag ${cls}">${label}</span></td></tr>`;
-        }).join('') : `<tr class="empty-row"><td colspan="5">Sem histórico ainda.</td></tr>`}
+          return `<tr><td>${MESES[h.mes]}/${String(h.ano).slice(2)}</td><td class="mono">${h.percentual}%</td><td class="num">${formatBRL(h.recebido)}</td><td class="num">${formatBRL(sug)}</td><td class="num">${formatBRL(h.retirado)}</td><td><span class="tag ${cls}">${status}</span></td></tr>`;
+        }).join('') : `<tr class="empty-row"><td colspan="6">Sem histórico ainda.</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2361,11 +2407,53 @@ function attachViewHandlers(){
     const input = document.getElementById('pl-percentual');
     const valor = parseFloat(input.value);
     if(isNaN(valor) || valor<0 || valor>100){ await showAlert('Informe um percentual entre 0 e 100.'); return; }
-    const backup = { ...state.configProLabore };
-    state.configProLabore.percentual = valor;
+    const chave = mesAnoKey(state.prolabore.mes, state.prolabore.ano);
+    const backup = { ...state.configProLabore, percentuais: {...state.configProLabore.percentuais} };
+    state.configProLabore.percentuais[chave] = valor;
     const ok = await saveAll();
     if(!ok){ state.configProLabore = backup; await showAlert('Não foi possível salvar o percentual agora. Tente novamente.'); return; }
     render();
+  });
+  const salvarPadraoBtn = document.getElementById('salvar-percentual-padrao');
+  if(salvarPadraoBtn) salvarPadraoBtn.addEventListener('click', async ()=>{
+    const input = document.getElementById('pl-percentual-padrao');
+    const valor = parseFloat(input.value);
+    if(isNaN(valor) || valor<0 || valor>100){ await showAlert('Informe um percentual entre 0 e 100.'); return; }
+    const backup = { ...state.configProLabore };
+    state.configProLabore.percentualPadrao = valor;
+    const ok = await saveAll();
+    if(!ok){ state.configProLabore = backup; await showAlert('Não foi possível salvar o percentual padrão agora. Tente novamente.'); return; }
+    render();
+  });
+  const alterarMesInicioBtn = document.getElementById('alterar-mes-inicio');
+  if(alterarMesInicioBtn) alterarMesInicioBtn.addEventListener('click', async ()=>{
+    const chaveAtual = state.configProLabore.mesInicio;
+    const [anoAtual, mesAtualNum] = chaveAtual.split('-').map(Number);
+    const opcoesM = MESES.map((m,i)=>`<option value="${i}" ${i===mesAtualNum-1?'selected':''}>${m}</option>`).join('');
+    const anoBase = new Date().getFullYear();
+    const opcoesA = [anoBase-1, anoBase, anoBase+1].map(a=>`<option value="${a}" ${a===anoAtual?'selected':''}>${a}</option>`).join('');
+    openModal(`
+      <h2>Início do controle de pró-labore</h2>
+      <p class="field-hint" style="margin-bottom:16px;">Meses anteriores a este não entram na sugestão nem no histórico de pró-labore.</p>
+      <div class="field-row">
+        <div class="field"><label>Mês</label><select id="f-mes-inicio">${opcoesM}</select></div>
+        <div class="field"><label>Ano</label><select id="f-ano-inicio">${opcoesA}</select></div>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" id="cancelar">Cancelar</button>
+        <button class="btn btn-primary" id="salvar">Salvar</button>
+      </div>
+    `);
+    document.getElementById('cancelar').onclick = closeModal;
+    document.getElementById('salvar').onclick = async ()=>{
+      const m = Number(document.getElementById('f-mes-inicio').value);
+      const a = Number(document.getElementById('f-ano-inicio').value);
+      const backup = { ...state.configProLabore };
+      state.configProLabore.mesInicio = mesAnoKey(m, a);
+      const ok = await saveAll();
+      if(!ok){ state.configProLabore = backup; await showAlert('Não foi possível salvar agora. Tente novamente.'); return; }
+      closeModal(); render();
+    };
   });
   const novaRetiradaBtn = document.getElementById('nova-retirada');
   if(novaRetiradaBtn) novaRetiradaBtn.addEventListener('click', ()=>openRetiradaModal());
