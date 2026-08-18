@@ -783,9 +783,29 @@ function importarCSVManual(){
   input.click();
 }
 
+function normalizarNomeComparacao(str){
+  return (str||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+}
+
 function abrirRevisaoImportacaoCSV(linhas, nomeArquivoOrigem){
-  let itens = linhas.map(l=>({ ...l, incluir: l.valor > 0, tipo:'variavel' }));
-  const temCreditos = itens.some(l=>l.valor < 0);
+  let itens = linhas.map(l=>({ ...l, incluir: l.valor > 0, tipo:'variavel', pareado:false }));
+
+  // Casa automaticamente estornos com a compra original (pelo nome do estabelecimento)
+  itens.forEach((estorno, i)=>{
+    const m = estorno.descricao.match(/^estorno de compra\s*\((.+)\)\s*$/i);
+    if(!m) return;
+    const alvo = normalizarNomeComparacao(m[1]);
+    if(!alvo) return;
+    const candidato = itens.find((outro, j)=> j!==i && outro.valor>0 && !outro.pareado &&
+      (normalizarNomeComparacao(outro.descricao).includes(alvo) || alvo.includes(normalizarNomeComparacao(outro.descricao))));
+    if(candidato){
+      estorno.incluir = false; estorno.pareado = true;
+      candidato.incluir = false; candidato.pareado = true;
+    }
+  });
+
+  const temCreditos = itens.some(l=>l.valor < 0 && !l.pareado);
+  const temPareados = itens.some(l=>l.pareado);
 
   function desenhar(){
     openModal(`
@@ -793,7 +813,8 @@ function abrirRevisaoImportacaoCSV(linhas, nomeArquivoOrigem){
       <div class="field"><label>Cartão desta fatura *</label>
         <select id="f-cartao-import">${state.cartoes.map(c=>`<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('')}</select>
       </div>
-      ${temCreditos ? `<div class="field-hint warn" style="margin-bottom:10px;">Itens em vermelho são pagamentos de fatura ou estornos (valor negativo) — vêm desmarcados por padrão, pois normalmente não são despesas.</div>` : ''}
+      ${temPareados ? `<div class="field-hint" style="margin-bottom:6px; color:var(--moss);">Compras que foram estornadas na mesma fatura foram casadas automaticamente com o estorno e já vêm desmarcadas (se cancelam).</div>` : ''}
+      ${temCreditos ? `<div class="field-hint warn" style="margin-bottom:10px;">Itens em vermelho são pagamentos de fatura ou estornos sem par encontrado (valor negativo) — vêm desmarcados por padrão.</div>` : ''}
       <div style="max-height:340px; overflow-y:auto; overflow-x:auto; border:1px solid var(--line); border-radius:var(--radius); margin:14px 0;">
         <table style="min-width:520px;">
           <thead><tr><th style="width:36px;"></th><th style="width:80px;">Data</th><th>Descrição</th><th style="width:110px;">Valor</th><th style="width:60px;">Fixo?</th></tr></thead>
@@ -802,7 +823,7 @@ function abrirRevisaoImportacaoCSV(linhas, nomeArquivoOrigem){
             <tr>
               <td><input type="checkbox" data-inc="${i}" ${l.incluir?'checked':''}></td>
               <td class="mono" style="white-space:nowrap;">${formatDate(l.data)}</td>
-              <td>${escapeHtml(l.descricao)}${l.valor<0?'<br><span class="tag aberto">pagamento/estorno</span>':''}</td>
+              <td>${escapeHtml(l.descricao)}${l.pareado?'<br><span class="tag quitado">estornado — não importado</span>':(l.valor<0?'<br><span class="tag aberto">pagamento/estorno</span>':'')}</td>
               <td class="num" style="white-space:nowrap; ${l.valor<0?'color:var(--rust);':''}">${formatBRL(l.valor)}</td>
               <td><input type="checkbox" data-fixo="${i}" ${l.tipo==='fixo'?'checked':''}></td>
             </tr>
