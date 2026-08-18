@@ -383,12 +383,17 @@ const state = {
   contas: [],
   tarefas: [],
   retiradas: [],
+  despesas: [],
+  cartoes: [],
+  arquivosImportadosCSV: [],
+  faturasPendentes: [],
   configProLabore: { percentualPadrao: 30, percentuais: {}, mesInicio: '' },
   eventosCalendario: [],
   calendarioCarregado: false,
   ready: false,
   relatorio: { mes: new Date().getMonth(), ano: new Date().getFullYear(), modo: 'mensal', filtroConta: null },
   prolabore: { mes: new Date().getMonth(), ano: new Date().getFullYear() },
+  despesasView: { mes: new Date().getMonth(), ano: new Date().getFullYear(), filtroTipo: '', filtroCartao: '' },
   buscaClientes: '',
   buscaTrabalhos: '',
   filtroClienteId: null,
@@ -413,6 +418,7 @@ const TABS = [
   { id:'relatorios', label:'Relatórios', n:'05' },
   { id:'tarefas', label:'Tarefas', n:'06' },
   { id:'prolabore', label:'Pró-labore', n:'07' },
+  { id:'despesas', label:'Despesas', n:'08' },
 ];
 
 const FORMAS_PAGAMENTO = ['Pix','Transferência','Boleto','Dinheiro','Cartão','Outro'];
@@ -568,7 +574,7 @@ async function ensureDataFile(){
   if(json.files && json.files.length){ driveFileId = json.files[0].id; return; }
   const boundary = 'livrocaixa-boundary-' + uid();
   const metadata = { name: DATA_FILE_NAME, parents: [driveFolderId], mimeType: 'application/json' };
-  const inicial = { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), tarefas:[], retiradas:[], configProLabore:{percentualPadrao:30,percentuais:{},mesInicio:''}, seedImportado:false };
+  const inicial = { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), tarefas:[], retiradas:[], despesas:[], cartoes:[], arquivosImportadosCSV:[], configProLabore:{percentualPadrao:30,percentuais:{},mesInicio:''}, seedImportado:false };
   const body =
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
     `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(inicial)}\r\n` +
@@ -607,7 +613,8 @@ async function criarArquivoBackupNoDrive(nomeArquivo){
     exportadoEm: new Date().toISOString(),
     clientes: state.clientes, trabalhos: state.trabalhos,
     recebimentos: state.recebimentos, contas: state.contas, tarefas: state.tarefas,
-    retiradas: state.retiradas, configProLabore: state.configProLabore
+    retiradas: state.retiradas, despesas: state.despesas, cartoes: state.cartoes,
+    configProLabore: state.configProLabore
   };
   const boundary = 'livrocaixa-backup-' + uid();
   const metadata = { name: nomeArquivo, parents: [pastaId], mimeType: 'application/json' };
@@ -654,11 +661,185 @@ async function verificarBackupMensalAutomatico(){
   }
 }
 
+/* ============ PASTA VIGIADA DE FATURAS (CSV) ============ */
+let faturasFolderId = null;
+
+async function ensureFaturasFolder(){
+  if(faturasFolderId) return faturasFolderId;
+  const q = encodeURIComponent(`name='Faturas Cartão' and mimeType='application/vnd.google-apps.folder' and '${driveFolderId}' in parents and trashed=false`);
+  const res = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
+  const json = await res.json();
+  if(json.files && json.files.length){ faturasFolderId = json.files[0].id; return faturasFolderId; }
+  const createRes = await driveFetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name: 'Faturas Cartão', mimeType: 'application/vnd.google-apps.folder', parents: [driveFolderId] })
+  });
+  const created = await createRes.json();
+  faturasFolderId = created.id;
+  return faturasFolderId;
+}
+
+async function verificarFaturasNovas(){
+  try{
+    const pastaId = await ensureFaturasFolder();
+    const q = encodeURIComponent(`'${pastaId}' in parents and trashed=false and name contains '.csv'`);
+    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`);
+    const json = await res.json();
+    const arquivos = json.files || [];
+    state.faturasPendentes = arquivos.filter(f=>!state.arquivosImportadosCSV.includes(f.name));
+    if(state.faturasPendentes.length && state.view === 'painel') render();
+  }catch(e){
+    console.error('Falha ao verificar novas faturas', e);
+  }
+}
+
+async function importarFaturaDoDrive(fileId, nomeArquivo){
+  try{
+    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`);
+    const texto = await res.text();
+    const linhas = parseCSVFatura(texto);
+    if(linhas === null){ await showAlert(`Não consegui reconhecer o formato do arquivo "${nomeArquivo}". Verifique se é uma exportação de fatura com colunas de data, descrição e valor.`); return; }
+    if(!linhas.length){ await showAlert(`Nenhuma transação válida encontrada em "${nomeArquivo}".`); return; }
+    if(!state.cartoes.length){ await showAlert('Cadastre pelo menos um cartão antes de importar (botão "Gerenciar cartões" na aba Despesas).'); return; }
+    abrirRevisaoImportacaoCSV(linhas, nomeArquivo);
+  }catch(e){
+    console.error(e);
+    await showAlert('Falha ao baixar essa fatura do Drive. Tente novamente.');
+  }
+}
+
+function ignorarFaturaPendente(nomeArquivo){
+  if(!state.arquivosImportadosCSV.includes(nomeArquivo)) state.arquivosImportadosCSV.push(nomeArquivo);
+  state.faturasPendentes = state.faturasPendentes.filter(f=>f.name!==nomeArquivo);
+  saveAll();
+  render();
+}
+
+/* ============ IMPORTAÇÃO DE CSV DE FATURA ============ */
+function parseCSVLine(linha){
+  const resultado = [];
+  let atual = '';
+  let dentroAspas = false;
+  for(let i=0;i<linha.length;i++){
+    const c = linha[i];
+    if(c === '"'){ dentroAspas = !dentroAspas; continue; }
+    if(c === ',' && !dentroAspas){ resultado.push(atual); atual=''; continue; }
+    atual += c;
+  }
+  resultado.push(atual);
+  return resultado.map(s=>s.trim());
+}
+function normalizarDataCSV(str){
+  str = (str||'').trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  if(/^\d{2}\/\d{2}\/\d{4}$/.test(str)){ const [d,m,a] = str.split('/'); return `${a}-${m}-${d}`; }
+  return '';
+}
+function parseCSVFatura(texto){
+  texto = texto.replace(/^\uFEFF/, '');
+  const linhas = texto.split(/\r\n|\n/).filter(l=>l.trim().length>0);
+  if(linhas.length < 2) return [];
+  const header = parseCSVLine(linhas[0]).map(h=>h.toLowerCase());
+  const idxData = header.findIndex(h=>['date','data'].includes(h));
+  const idxTitulo = header.findIndex(h=>['title','description','descrição','descricao','estabelecimento'].includes(h));
+  const idxValor = header.findIndex(h=>['amount','valor','value'].includes(h));
+  if(idxData===-1 || idxTitulo===-1 || idxValor===-1) return null;
+  return linhas.slice(1).map(linha=>{
+    const campos = parseCSVLine(linha);
+    return {
+      data: normalizarDataCSV(campos[idxData]),
+      descricao: campos[idxTitulo] || '',
+      valor: parseFloat((campos[idxValor]||'').replace(',','.'))
+    };
+  }).filter(r=>r.data && r.descricao && !isNaN(r.valor));
+}
+
+function importarCSVManual(){
+  if(!state.cartoes.length){ showAlert('Cadastre pelo menos um cartão antes de importar (botão "Gerenciar cartões").'); return; }
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = '.csv,text/csv';
+  input.onchange = (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const linhas = parseCSVFatura(reader.result);
+      if(linhas === null){ showAlert('Não consegui reconhecer o formato desse CSV. Verifique se é uma exportação de fatura (colunas de data, descrição e valor).'); return; }
+      if(!linhas.length){ showAlert('Nenhuma transação válida encontrada no arquivo.'); return; }
+      abrirRevisaoImportacaoCSV(linhas, file.name);
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+  input.click();
+}
+
+function abrirRevisaoImportacaoCSV(linhas, nomeArquivoOrigem){
+  let itens = linhas.map(l=>({ ...l, incluir:true, tipo:'variavel' }));
+
+  function desenhar(){
+    openModal(`
+      <h2>Revisar importação${nomeArquivoOrigem ? ' — '+escapeHtml(nomeArquivoOrigem) : ''}</h2>
+      <div class="field"><label>Cartão desta fatura *</label>
+        <select id="f-cartao-import">${state.cartoes.map(c=>`<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('')}</select>
+      </div>
+      <div style="max-height:320px; overflow-y:auto; border:1px solid var(--line); border-radius:var(--radius); margin:14px 0;">
+        <table>
+          <thead><tr><th></th><th>Data</th><th>Descrição</th><th>Valor</th><th>Fixo?</th></tr></thead>
+          <tbody>
+          ${itens.map((l,i)=>`
+            <tr>
+              <td><input type="checkbox" data-inc="${i}" ${l.incluir?'checked':''}></td>
+              <td class="mono">${formatDate(l.data)}</td>
+              <td>${escapeHtml(l.descricao)}</td>
+              <td class="num">${formatBRL(l.valor)}</td>
+              <td><input type="checkbox" data-fixo="${i}" ${l.tipo==='fixo'?'checked':''}></td>
+            </tr>
+          `).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="field-hint">${itens.filter(l=>l.incluir).length} de ${itens.length} selecionados. Marque "Fixo?" nas despesas fixas — o restante entra como variável.</div>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" id="cancelar">Cancelar</button>
+        <button class="btn btn-primary" id="confirmar-import">Importar selecionados</button>
+      </div>
+    `);
+    document.getElementById('cancelar').onclick = closeModal;
+    document.querySelectorAll('[data-inc]').forEach(inp=>{
+      inp.addEventListener('change', ()=>{ itens[Number(inp.dataset.inc)].incluir = inp.checked; });
+    });
+    document.querySelectorAll('[data-fixo]').forEach(inp=>{
+      inp.addEventListener('change', ()=>{ itens[Number(inp.dataset.fixo)].tipo = inp.checked ? 'fixo' : 'variavel'; });
+    });
+    document.getElementById('confirmar-import').onclick = async ()=>{
+      const cartaoId = document.getElementById('f-cartao-import').value;
+      const selecionados = itens.filter(l=>l.incluir);
+      if(!selecionados.length){ await showAlert('Selecione ao menos uma despesa para importar.'); return; }
+      const novos = selecionados.map(l=>({ id:uid(), descricao:l.descricao, valor:l.valor, data:l.data, tipo:l.tipo, categoria:'', cartaoId, origem:'csv' }));
+      const backupDespesas = state.despesas.slice();
+      const backupArquivos = state.arquivosImportadosCSV.slice();
+      state.despesas.push(...novos);
+      if(nomeArquivoOrigem && !state.arquivosImportadosCSV.includes(nomeArquivoOrigem)) state.arquivosImportadosCSV.push(nomeArquivoOrigem);
+      state.faturasPendentes = state.faturasPendentes.filter(f=>f.name!==nomeArquivoOrigem);
+      const ok = await saveAll();
+      if(!ok){
+        state.despesas = backupDespesas; state.arquivosImportadosCSV = backupArquivos;
+        await showAlert('Falha ao salvar a importação. Tente novamente.');
+        return;
+      }
+      closeModal(); render();
+      await showAlert(`${novos.length} despesa(s) importada(s) com sucesso!`);
+    };
+  }
+  desenhar();
+}
+
 async function driveLoad(){
   const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`);
   const text = await res.text();
   try{ return JSON.parse(text); }
-  catch(e){ return { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), tarefas:[], retiradas:[], configProLabore:{percentualPadrao:30,percentuais:{},mesInicio:''}, seedImportado:false }; }
+  catch(e){ return { clientes:[], trabalhos:[], recebimentos:[], contas: CONTAS_PADRAO.slice(), tarefas:[], retiradas:[], despesas:[], cartoes:[], arquivosImportadosCSV:[], configProLabore:{percentualPadrao:30,percentuais:{},mesInicio:''}, seedImportado:false }; }
 }
 
 async function driveSave(data){
@@ -676,7 +857,9 @@ async function saveAll(){
   const ok = await driveSave({
     clientes: state.clientes, trabalhos: state.trabalhos,
     recebimentos: state.recebimentos, contas: state.contas, tarefas: state.tarefas,
-    retiradas: state.retiradas, configProLabore: state.configProLabore, seedImportado: state.seedImportado
+    retiradas: state.retiradas, despesas: state.despesas, cartoes: state.cartoes,
+    arquivosImportadosCSV: state.arquivosImportadosCSV,
+    configProLabore: state.configProLabore, seedImportado: state.seedImportado
   });
   if(!ok){
     await showAlert('Não foi possível salvar no Google Drive agora. Verifique sua conexão com a internet e tente novamente — se o problema continuar, talvez seja preciso reconectar (recarregue a página e clique em Conectar ao Google Drive de novo).');
@@ -697,6 +880,9 @@ async function bootAfterAuth(){
     state.contas = (data.contas && data.contas.length) ? data.contas : CONTAS_PADRAO.slice();
     state.tarefas = data.tarefas || [];
     state.retiradas = data.retiradas || [];
+    state.despesas = data.despesas || [];
+    state.cartoes = data.cartoes || [];
+    state.arquivosImportadosCSV = data.arquivosImportadosCSV || [];
     state.configProLabore = migrarConfigProLabore(data.configProLabore);
     state.seedImportado = data.seedImportado || false;
     state.ready = true;
@@ -705,6 +891,7 @@ async function bootAfterAuth(){
     render();
     if(!data.contas){ saveAll(); } // grava as contas-padrão na primeira vez
     verificarBackupMensalAutomatico(); // roda em segundo plano, sem bloquear a interface
+    verificarFaturasNovas(); // roda em segundo plano, sem bloquear a interface
   }catch(e){
     console.error(e);
     localStorage.removeItem('lc-token');
@@ -794,6 +981,10 @@ function clienteNome(id){
 function contaNome(id){
   const c = state.contas.find(c=>c.id===id);
   return c ? c.nome : 'Não informada';
+}
+function cartaoNome(id){
+  const c = state.cartoes.find(c=>c.id===id);
+  return c ? c.nome : 'Sem cartão';
 }
 function trabalhoRecebido(trabalhoId){
   return state.recebimentos.filter(r=>r.trabalhoId===trabalhoId).reduce((s,r)=>s+Number(r.valor),0);
@@ -885,7 +1076,7 @@ function renderNav(){
 
 function render(){
   renderNav();
-  const titleMap = {painel:'Painel', clientes:'Clientes', trabalhos:'Trabalhos', recebimentos:'Recebimentos', relatorios:'Relatórios mensais', tarefas:'Tarefas & Agenda', prolabore:'Pró-labore'};
+  const titleMap = {painel:'Painel', clientes:'Clientes', trabalhos:'Trabalhos', recebimentos:'Recebimentos', relatorios:'Relatórios mensais', tarefas:'Tarefas & Agenda', prolabore:'Pró-labore', despesas:'Despesas'};
   document.getElementById('view-title').textContent = titleMap[state.view];
   document.getElementById('today').textContent = new Date().toLocaleDateString('pt-BR', { weekday:'long', day:'2-digit', month:'long', year:'numeric' });
 
@@ -902,6 +1093,7 @@ function render(){
     if(!state.calendarioCarregado){ carregarEventosCalendario(); }
   }
   if(state.view === 'prolabore') view.innerHTML = renderProLabore();
+  if(state.view === 'despesas') view.innerHTML = renderDespesas();
 
   attachViewHandlers();
 }
@@ -929,6 +1121,29 @@ function renderPainel(){
         <div class="field-hint" style="margin:0;">36 lançamentos de janeiro a junho, já organizados por cliente conforme sua revisão.</div>
       </div>
       <button class="btn btn-primary" id="importar-seed" style="white-space:nowrap;">Importar agora</button>
+    </div>
+  ` : '';
+
+  const diaHoje = now.getDate();
+  const cartoesFechandoEmBreve = state.cartoes.filter(c=>{
+    if(!c.diaFechamento) return false;
+    const diff = c.diaFechamento - diaHoje;
+    return diff>=0 && diff<=3;
+  });
+  const lembreteFaturaBanner = cartoesFechandoEmBreve.length ? `
+    <div class="card" style="margin-bottom:20px; border-color:var(--brass); background:var(--brass-soft);">
+      <div class="serif" style="font-size:14px; margin-bottom:4px;">💳 Fatura fechando em breve</div>
+      <div class="field-hint" style="margin:0;">
+        ${cartoesFechandoEmBreve.map(c=>`${escapeHtml(c.nome)} (fecha dia ${c.diaFechamento})`).join(' · ')}
+        — não esqueça de exportar o CSV e salvar em <strong>Livro-Caixa/Faturas Cartão</strong> no Drive.
+      </div>
+    </div>
+  ` : '';
+
+  const faturasPendentesBanner = state.faturasPendentes.length ? `
+    <div class="card" style="margin-bottom:20px; border-color:var(--moss); background:var(--moss-soft); display:flex; justify-content:space-between; align-items:center; gap:16px;">
+      <div class="serif" style="font-size:14px;">📄 ${state.faturasPendentes.length} fatura(s) nova(s) esperando importação</div>
+      <button class="btn btn-primary" id="ir-para-despesas" style="white-space:nowrap;">Ver na aba Despesas</button>
     </div>
   ` : '';
 
@@ -961,6 +1176,8 @@ function renderPainel(){
 
   return `
     ${importBanner}
+    ${lembreteFaturaBanner}
+    ${faturasPendentesBanner}
     <div class="grid grid-4" style="margin-bottom:28px;">
       <div class="card stat rust">
         <div class="label">Em aberto</div>
@@ -1448,6 +1665,72 @@ function openContasModal(){
   desenhar();
 }
 
+function openCartoesModal(){
+  let rascunho = state.cartoes.map(c=>({...c}));
+
+  function desenhar(){
+    openModal(`
+      <h2>Gerenciar cartões</h2>
+      <div id="lista-cartoes">
+        ${rascunho.map((c,i)=>`
+          <div class="field-row" style="grid-template-columns: 1fr 110px auto; align-items:center; margin-bottom:10px;">
+            <input class="cartao-nome-input" data-idx="${i}" value="${escapeHtml(c.nome)}" placeholder="Ex: Nubank Roxinho">
+            <input class="cartao-dia-input" data-idx="${i}" type="number" min="1" max="31" value="${c.diaFechamento||''}" placeholder="Dia fecha">
+            <button class="icon-btn danger" data-remover-cartao="${i}" style="margin-left:8px;">Excluir</button>
+          </div>
+        `).join('') || '<div class="field-hint">Nenhum cartão cadastrado ainda.</div>'}
+      </div>
+      <div class="field-hint" style="margin-bottom:10px;">O "dia que fecha" é o dia do mês em que a fatura fecha — usado para te lembrar de exportar o CSV.</div>
+      <div class="field-row" style="grid-template-columns: 1fr 110px auto; align-items:end; margin-top:10px;">
+        <div class="field" style="margin-bottom:0;"><label>Novo cartão</label><input id="novo-cartao-nome" placeholder="Ex: Itaú Click"></div>
+        <div class="field" style="margin-bottom:0;"><label>Dia fecha</label><input id="novo-cartao-dia" type="number" min="1" max="31"></div>
+        <button class="btn btn-ghost" id="add-cartao" style="margin-left:8px; white-space:nowrap;">+ Adicionar</button>
+      </div>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" id="cancelar">Cancelar</button>
+        <button class="btn btn-primary" id="salvar-cartoes">Salvar</button>
+      </div>
+    `);
+    document.getElementById('cancelar').onclick = closeModal;
+    document.getElementById('add-cartao').onclick = ()=>{
+      const nomeInput = document.getElementById('novo-cartao-nome');
+      const diaInput = document.getElementById('novo-cartao-dia');
+      const nome = nomeInput.value.trim();
+      if(!nome) return;
+      rascunho.push({ id: uid(), nome, diaFechamento: diaInput.value ? Number(diaInput.value) : null });
+      desenhar();
+    };
+    document.querySelectorAll('.cartao-nome-input').forEach(inp=>{
+      inp.addEventListener('input', ()=>{ rascunho[Number(inp.dataset.idx)].nome = inp.value; });
+    });
+    document.querySelectorAll('.cartao-dia-input').forEach(inp=>{
+      inp.addEventListener('input', ()=>{ rascunho[Number(inp.dataset.idx)].diaFechamento = inp.value ? Number(inp.value) : null; });
+    });
+    document.querySelectorAll('[data-remover-cartao]').forEach(b=>{
+      b.addEventListener('click', async ()=>{
+        const idx = Number(b.dataset.removerCartao);
+        const cartao = rascunho[idx];
+        const emUso = state.despesas.some(d=>d.cartaoId===cartao.id);
+        const msg = emUso
+          ? 'Esse cartão está vinculado a despesas já lançadas. Excluir mesmo assim? As despesas continuam, só ficam sem cartão associado.'
+          : 'Excluir este cartão?';
+        if(!(await showConfirm(msg))) return;
+        rascunho.splice(idx,1);
+        desenhar();
+      });
+    });
+    document.getElementById('salvar-cartoes').onclick = async ()=>{
+      if(rascunho.some(c=>!c.nome.trim())){ await showAlert('O nome do cartão não pode ficar em branco.'); return; }
+      const backup = state.cartoes.slice();
+      state.cartoes = rascunho;
+      const ok = await saveAll();
+      if(!ok){ state.cartoes = backup; await showAlert('Não foi possível salvar os cartões agora. Tente novamente.'); return; }
+      closeModal(); render();
+    };
+  }
+  desenhar();
+}
+
 function openRecebimentoModal(prefillTrabalhoId, existing){
   const isEdit = !!existing;
   const abertos = state.trabalhos.filter(t=>trabalhoSaldo(t) > 0.004);
@@ -1916,6 +2199,172 @@ function openRetiradaModal(existing){
   };
 }
 
+/* ============ DESPESAS (CUSTOS FIXOS E VARIÁVEIS) ============ */
+function renderDespesas(){
+  const { mes, ano, filtroTipo, filtroCartao } = state.despesasView;
+  let lista = state.despesas.filter(d=>{
+    const dt = new Date(d.data+'T00:00:00');
+    return dt.getMonth()===mes && dt.getFullYear()===ano;
+  });
+  if(filtroTipo) lista = lista.filter(d=>d.tipo===filtroTipo);
+  if(filtroCartao) lista = lista.filter(d=>d.cartaoId===filtroCartao);
+  lista = lista.slice().sort((a,b)=>b.data.localeCompare(a.data));
+
+  const totalFixo = state.despesas.filter(d=>{
+    const dt = new Date(d.data+'T00:00:00');
+    return dt.getMonth()===mes && dt.getFullYear()===ano && d.tipo==='fixo';
+  }).reduce((s,d)=>s+Number(d.valor),0);
+  const totalVariavel = state.despesas.filter(d=>{
+    const dt = new Date(d.data+'T00:00:00');
+    return dt.getMonth()===mes && dt.getFullYear()===ano && d.tipo==='variavel';
+  }).reduce((s,d)=>s+Number(d.valor),0);
+  const totalGeral = totalFixo + totalVariavel;
+
+  const anoAtual = new Date().getFullYear();
+  const opcoesAno = [anoAtual-1, anoAtual, anoAtual+1].map(a=>`<option value="${a}" ${a===ano?'selected':''}>${a}</option>`).join('');
+  const opcoesMes = MESES.map((m,i)=>`<option value="${i}" ${i===mes?'selected':''}>${m}</option>`).join('');
+  const opcoesCartaoFiltro = state.cartoes.map(c=>`<option value="${c.id}" ${filtroCartao===c.id?'selected':''}>${escapeHtml(c.nome)}</option>`).join('');
+
+  const faturasBanner = state.faturasPendentes.length ? `
+    <div class="filter-banner" style="border-color:var(--brass); background:var(--brass-soft); flex-direction:column; align-items:stretch; gap:8px;">
+      <strong style="color:var(--brass);">Fatura(s) nova(s) encontrada(s) na pasta "Livro-Caixa/Faturas Cartão" do seu Drive:</strong>
+      ${state.faturasPendentes.map(f=>`
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span>${escapeHtml(f.name)}</span>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-primary" style="padding:6px 12px; font-size:11.5px;" data-importar-fatura="${f.id}" data-nome-fatura="${escapeHtml(f.name)}">Importar</button>
+            <button class="btn btn-ghost" style="padding:6px 12px; font-size:11.5px;" data-ignorar-fatura="${escapeHtml(f.name)}">Ignorar</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
+  return `
+    <div class="toolbar">
+      <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <select class="month-select" id="sel-mes-desp">${opcoesMes}</select>
+        <select class="month-select" id="sel-ano-desp">${opcoesAno}</select>
+        <select class="month-select" id="filtro-tipo-desp">
+          <option value="">Todos os tipos</option>
+          <option value="fixo" ${filtroTipo==='fixo'?'selected':''}>Fixo</option>
+          <option value="variavel" ${filtroTipo==='variavel'?'selected':''}>Variável</option>
+        </select>
+        <select class="month-select" id="filtro-cartao-desp">
+          <option value="">Todos os cartões</option>
+          ${opcoesCartaoFiltro}
+        </select>
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-ghost" id="gerenciar-cartoes">Gerenciar cartões</button>
+        <button class="btn btn-ghost" id="importar-csv">Importar CSV</button>
+        <button class="btn btn-primary" id="nova-despesa">+ Nova despesa</button>
+      </div>
+    </div>
+
+    ${faturasBanner}
+
+    <div class="grid grid-4" style="margin-bottom:28px;">
+      <div class="card stat">
+        <div class="label">Custos fixos</div>
+        <div class="value num">${formatBRL(totalFixo)}</div>
+        <div class="hint">${MESES[mes]} de ${ano}</div>
+      </div>
+      <div class="card stat">
+        <div class="label">Custos variáveis</div>
+        <div class="value num">${formatBRL(totalVariavel)}</div>
+        <div class="hint">${MESES[mes]} de ${ano}</div>
+      </div>
+      <div class="card stat rust">
+        <div class="label">Total do mês</div>
+        <div class="value num">${formatBRL(totalGeral)}</div>
+        <div class="hint">fixo + variável</div>
+      </div>
+      <div class="card stat brass">
+        <div class="label">Cartões cadastrados</div>
+        <div class="value num">${state.cartoes.length}</div>
+        <div class="hint">${state.despesas.length} despesa(s) no total</div>
+      </div>
+    </div>
+
+    <div class="section-title"><span>Despesas de ${MESES[mes]}</span><span class="rule"></span><span class="badge-count">${lista.length}</span></div>
+    <div class="card" style="padding:0;">
+      <table>
+        <thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Cartão</th><th>Origem</th><th>Valor</th><th></th></tr></thead>
+        <tbody>
+        ${lista.length ? lista.map(d=>`
+          <tr>
+            <td class="mono">${formatDate(d.data)}</td>
+            <td>${escapeHtml(d.descricao)}</td>
+            <td><span class="tag ${d.tipo==='fixo'?'quitado':'parcial'}">${d.tipo==='fixo'?'fixo':'variável'}</span></td>
+            <td>${escapeHtml(cartaoNome(d.cartaoId))}</td>
+            <td>${d.origem==='csv'?'CSV':'Manual'}</td>
+            <td class="num">${formatBRL(d.valor)}</td>
+            <td>
+              <div class="row-actions">
+                <button class="icon-btn" data-edit-despesa="${d.id}">Editar</button>
+                <button class="icon-btn danger" data-del-despesa="${d.id}">Excluir</button>
+              </div>
+            </td>
+          </tr>
+        `).join('') : `<tr class="empty-row"><td colspan="7">Nenhuma despesa lançada em ${MESES[mes]}.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function openDespesaModal(existing){
+  const isEdit = !!existing;
+  const opcoesCartoes = state.cartoes.map(c=>`<option value="${c.id}" ${isEdit && existing.cartaoId===c.id?'selected':''}>${escapeHtml(c.nome)}</option>`).join('');
+  openModal(`
+    <h2>${isEdit ? 'Editar despesa' : 'Nova despesa'}</h2>
+    <div class="field"><label>Descrição *</label><input id="f-desc-despesa" value="${escapeHtml(existing&&existing.descricao)||''}" placeholder="Ex: Assinatura Adobe"></div>
+    <div class="field-row">
+      <div class="field"><label>Valor (R$) *</label><input id="f-valor-despesa" type="number" step="0.01" min="0" value="${isEdit?existing.valor:''}"></div>
+      <div class="field"><label>Data *</label><input id="f-data-despesa" type="date" value="${isEdit?existing.data:todayISO()}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Tipo *</label>
+        <select id="f-tipo-despesa">
+          <option value="fixo" ${isEdit && existing.tipo==='fixo'?'selected':''}>Fixo</option>
+          <option value="variavel" ${!isEdit || existing.tipo==='variavel'?'selected':''}>Variável</option>
+        </select>
+      </div>
+      <div class="field"><label>Cartão (opcional)</label>
+        <select id="f-cartao-despesa"><option value="">Nenhum / débito direto</option>${opcoesCartoes}</select>
+      </div>
+    </div>
+    <div class="field"><label>Categoria (opcional)</label><input id="f-categoria-despesa" value="${escapeHtml(existing&&existing.categoria)||''}" placeholder="Ex: Assinaturas, Combustível, Material"></div>
+    <div class="dialog-actions">
+      <button class="btn btn-ghost" id="cancelar">Cancelar</button>
+      <button class="btn btn-primary" id="salvar">Salvar</button>
+    </div>
+  `);
+  document.getElementById('cancelar').onclick = closeModal;
+  document.getElementById('salvar').onclick = async ()=>{
+    const descricao = document.getElementById('f-desc-despesa').value.trim();
+    const valor = parseFloat(document.getElementById('f-valor-despesa').value);
+    const data = document.getElementById('f-data-despesa').value;
+    const tipo = document.getElementById('f-tipo-despesa').value;
+    const cartaoId = document.getElementById('f-cartao-despesa').value;
+    const categoria = document.getElementById('f-categoria-despesa').value.trim();
+    if(!descricao || isNaN(valor) || valor<=0 || !data){
+      await showAlert('Preencha descrição, valor e data.'); return;
+    }
+    const backup = state.despesas.slice();
+    if(isEdit){
+      const idx = state.despesas.findIndex(d=>d.id===existing.id);
+      state.despesas[idx] = { id: existing.id, descricao, valor, data, tipo, cartaoId, categoria, origem: existing.origem||'manual' };
+    } else {
+      state.despesas.push({ id: uid(), descricao, valor, data, tipo, cartaoId, categoria, origem:'manual' });
+    }
+    const ok = await saveAll();
+    if(!ok){ state.despesas = backup; await showAlert('Não foi possível salvar a despesa agora. Tente novamente.'); return; }
+    closeModal(); render();
+  };
+}
+
 /* ============ PDF ============ */
 function gerarReciboPDF(trabalhoId){
   if(!window.jspdf){ showAlert('Não foi possível carregar o gerador de PDF (verifique sua conexão com a internet) e tente novamente.'); return; }
@@ -2002,6 +2451,8 @@ function baixarBackup(){
     contas: state.contas,
     tarefas: state.tarefas,
     retiradas: state.retiradas,
+    despesas: state.despesas,
+    cartoes: state.cartoes,
     configProLabore: state.configProLabore
   };
   const blob = new Blob([JSON.stringify(backup, null, 2)], { type:'application/json' });
@@ -2253,6 +2704,8 @@ function attachViewHandlers(){
   if(backupBtn) backupBtn.addEventListener('click', baixarBackup);
   const backupDriveBtn = document.getElementById('backup-drive-agora');
   if(backupDriveBtn) backupDriveBtn.addEventListener('click', backupManualDrive);
+  const irParaDespesasBtn = document.getElementById('ir-para-despesas');
+  if(irParaDespesasBtn) irParaDespesasBtn.addEventListener('click', ()=>{ state.view = 'despesas'; render(); });
 
   // Clientes
   const buscaC = document.getElementById('busca-clientes');
@@ -2469,6 +2922,41 @@ function attachViewHandlers(){
       if(!ok){ state.retiradas = backup; await showAlert('Não foi possível excluir agora. Tente novamente.'); return; }
       render();
     });
+  });
+
+  // Despesas
+  const selMesDesp = document.getElementById('sel-mes-desp');
+  const selAnoDesp = document.getElementById('sel-ano-desp');
+  if(selMesDesp) selMesDesp.addEventListener('change', e=>{ state.despesasView.mes = Number(e.target.value); render(); });
+  if(selAnoDesp) selAnoDesp.addEventListener('change', e=>{ state.despesasView.ano = Number(e.target.value); render(); });
+  const filtroTipoDesp = document.getElementById('filtro-tipo-desp');
+  if(filtroTipoDesp) filtroTipoDesp.addEventListener('change', e=>{ state.despesasView.filtroTipo = e.target.value; render(); });
+  const filtroCartaoDesp = document.getElementById('filtro-cartao-desp');
+  if(filtroCartaoDesp) filtroCartaoDesp.addEventListener('change', e=>{ state.despesasView.filtroCartao = e.target.value; render(); });
+  const gerenciarCartoesBtn = document.getElementById('gerenciar-cartoes');
+  if(gerenciarCartoesBtn) gerenciarCartoesBtn.addEventListener('click', openCartoesModal);
+  const importarCSVBtn = document.getElementById('importar-csv');
+  if(importarCSVBtn) importarCSVBtn.addEventListener('click', importarCSVManual);
+  const novaDespesaBtn = document.getElementById('nova-despesa');
+  if(novaDespesaBtn) novaDespesaBtn.addEventListener('click', ()=>openDespesaModal());
+  document.querySelectorAll('[data-edit-despesa]').forEach(b=>{
+    b.addEventListener('click', ()=>openDespesaModal(state.despesas.find(d=>d.id===b.dataset.editDespesa)));
+  });
+  document.querySelectorAll('[data-del-despesa]').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      if(!(await showConfirm('Excluir esta despesa?'))) return;
+      const backup = state.despesas.slice();
+      state.despesas = state.despesas.filter(d=>d.id!==b.dataset.delDespesa);
+      const ok = await saveAll();
+      if(!ok){ state.despesas = backup; await showAlert('Não foi possível excluir agora. Tente novamente.'); return; }
+      render();
+    });
+  });
+  document.querySelectorAll('[data-importar-fatura]').forEach(b=>{
+    b.addEventListener('click', ()=>importarFaturaDoDrive(b.dataset.importarFatura, b.dataset.nomeFatura));
+  });
+  document.querySelectorAll('[data-ignorar-fatura]').forEach(b=>{
+    b.addEventListener('click', ()=>ignorarFaturaPendente(b.dataset.ignorarFatura));
   });
 }
 
