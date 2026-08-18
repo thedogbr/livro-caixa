@@ -794,16 +794,16 @@ function abrirRevisaoImportacaoCSV(linhas, nomeArquivoOrigem){
         <select id="f-cartao-import">${state.cartoes.map(c=>`<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('')}</select>
       </div>
       ${temCreditos ? `<div class="field-hint warn" style="margin-bottom:10px;">Itens em vermelho são pagamentos de fatura ou estornos (valor negativo) — vêm desmarcados por padrão, pois normalmente não são despesas.</div>` : ''}
-      <div style="max-height:320px; overflow-y:auto; border:1px solid var(--line); border-radius:var(--radius); margin:14px 0;">
-        <table>
-          <thead><tr><th></th><th>Data</th><th>Descrição</th><th>Valor</th><th>Fixo?</th></tr></thead>
+      <div style="max-height:340px; overflow-y:auto; overflow-x:auto; border:1px solid var(--line); border-radius:var(--radius); margin:14px 0;">
+        <table style="min-width:520px;">
+          <thead><tr><th style="width:36px;"></th><th style="width:80px;">Data</th><th>Descrição</th><th style="width:110px;">Valor</th><th style="width:60px;">Fixo?</th></tr></thead>
           <tbody>
           ${itens.map((l,i)=>`
             <tr>
               <td><input type="checkbox" data-inc="${i}" ${l.incluir?'checked':''}></td>
-              <td class="mono">${formatDate(l.data)}</td>
-              <td>${escapeHtml(l.descricao)}${l.valor<0?' <span class="tag aberto">pagamento/estorno</span>':''}</td>
-              <td class="num" style="${l.valor<0?'color:var(--rust);':''}">${formatBRL(l.valor)}</td>
+              <td class="mono" style="white-space:nowrap;">${formatDate(l.data)}</td>
+              <td>${escapeHtml(l.descricao)}${l.valor<0?'<br><span class="tag aberto">pagamento/estorno</span>':''}</td>
+              <td class="num" style="white-space:nowrap; ${l.valor<0?'color:var(--rust);':''}">${formatBRL(l.valor)}</td>
               <td><input type="checkbox" data-fixo="${i}" ${l.tipo==='fixo'?'checked':''}></td>
             </tr>
           `).join('')}
@@ -815,7 +815,7 @@ function abrirRevisaoImportacaoCSV(linhas, nomeArquivoOrigem){
         <button class="btn btn-ghost" id="cancelar">Cancelar</button>
         <button class="btn btn-primary" id="confirmar-import">Importar selecionados</button>
       </div>
-    `);
+    `, { maxWidth: 640 });
     document.getElementById('cancelar').onclick = closeModal;
     document.querySelectorAll('[data-inc]').forEach(inp=>{
       inp.addEventListener('change', ()=>{ itens[Number(inp.dataset.inc)].incluir = inp.checked; });
@@ -2658,10 +2658,11 @@ function exportarCSV(){
 }
 
 /* ============ MODAL SHELL ============ */
-function openModal(innerHtml){
+function openModal(innerHtml, opts){
+  const largura = (opts && opts.maxWidth) ? opts.maxWidth : 520;
   document.getElementById('modal-root').innerHTML = `
     <div class="overlay" id="overlay">
-      <div class="dialog">${innerHtml}</div>
+      <div class="dialog" style="max-width:${largura}px;">${innerHtml}</div>
     </div>
   `;
   document.getElementById('overlay').addEventListener('mousedown', (e)=>{
